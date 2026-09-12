@@ -1,9 +1,10 @@
 import { useAttendance } from "@/context/AttendanceContext";
 import { useSubjects } from "@/context/SubjectContext";
 import { useTheme } from "@/context/ThemeContext";
+import { testSupabaseConnection } from "@/lib/testSupabase";
 import { calculateAttendance } from "@/utils/attendanceCalculator";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   Alert,
@@ -16,6 +17,11 @@ import {
 } from "react-native";
 
 export default function HomeScreen() {
+  useEffect(() => {
+    testSupabaseConnection();
+  }, []);
+
+
   const {
     subjects,
     addSubject,
