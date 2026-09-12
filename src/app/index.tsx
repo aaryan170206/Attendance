@@ -1,10 +1,9 @@
 import { useAttendance } from "@/context/AttendanceContext";
 import { useSubjects } from "@/context/SubjectContext";
 import { useTheme } from "@/context/ThemeContext";
-import { testSupabaseConnection } from "@/lib/testSupabase";
 import { calculateAttendance } from "@/utils/attendanceCalculator";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import {
   Alert,
@@ -17,11 +16,6 @@ import {
 } from "react-native";
 
 export default function HomeScreen() {
-  useEffect(() => {
-    testSupabaseConnection();
-  }, []);
-
-
   const {
     subjects,
     addSubject,
@@ -67,14 +61,12 @@ export default function HomeScreen() {
         {
           text: "Delete",
           style: "destructive",
-
           onPress: async () => {
-            // Delete the subject itself
             deleteSubject(name);
 
-            // Delete all attendance belonging
-            // to that subject
-            await removeSubjectAttendance(name);
+            await removeSubjectAttendance(
+              name
+            );
           },
         },
       ]
@@ -347,7 +339,7 @@ export default function HomeScreen() {
                   </Text>
                 </View>
 
-                {/* DELETE */}
+                {/* DELETE BUTTON */}
 
                 <Pressable
                   onPress={() =>
@@ -402,8 +394,7 @@ export default function HomeScreen() {
                     {
                       color:
                         theoryStats
-                          .percentage >
-                        75
+                          .percentage > 75
                           ? colors.present
                           : theoryStats
                               .percentage >=
@@ -429,9 +420,13 @@ export default function HomeScreen() {
                   },
                 ]}
               >
-                {theoryStats.attendedClasses}{" "}
+                {
+                  theoryStats.attendedClasses
+                }{" "}
                 /{" "}
-                {theoryStats.totalClasses}{" "}
+                {
+                  theoryStats.totalClasses
+                }{" "}
                 classes
               </Text>
 
@@ -467,8 +462,7 @@ export default function HomeScreen() {
                           {
                             color:
                               labStats
-                                .percentage >
-                              75
+                                .percentage > 75
                                 ? colors.present
                                 : labStats
                                     .percentage >=

@@ -7,9 +7,12 @@ import {
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import { useAuth } from "@/context/AuthContext";
 import { getMySubjects } from "@/lib/subjects";
 
-const SUBJECTS_STORAGE_KEY = "@subjects";
+function getSubjectsStorageKey(userId: string): string {
+  return `@subjects_${userId}`;
+}
 
 type Subject = {
   id?: string;
@@ -43,25 +46,31 @@ export function SubjectProvider({
 }: {
   children: React.ReactNode;
 }) {
+  const { user } = useAuth();
+
   const [subjects, setSubjects] =
     useState<Subject[]>([]);
 
   /*
-   * Load subjects from local storage first.
-   * This allows the app to display subjects
-   * even when there is no internet connection.
+   * Load subjects from local storage for
+   * the currently authenticated user.
    */
-  const loadLocalSubjects = async () => {
+  const loadLocalSubjects = async (
+    userId: string
+  ) => {
     try {
+      const storageKey =
+        getSubjectsStorageKey(userId);
+
       const savedSubjects =
-        await AsyncStorage.getItem(
-          SUBJECTS_STORAGE_KEY
-        );
+        await AsyncStorage.getItem(storageKey);
 
       if (savedSubjects) {
         setSubjects(
           JSON.parse(savedSubjects)
         );
+      } else {
+        setSubjects([]);
       }
     } catch (error) {
       console.log(
@@ -73,15 +82,13 @@ export function SubjectProvider({
 
   /*
    * Load subjects from Supabase.
-   *
-   * If Supabase succeeds:
-   *   - update the app
-   *   - update the local cache
-   *
-   * If Supabase fails:
-   *   - keep using the local subjects
    */
   const refreshSubjects = async () => {
+    if (!user?.id) {
+      setSubjects([]);
+      return;
+    }
+
     try {
       const {
         data,
@@ -110,8 +117,11 @@ export function SubjectProvider({
 
       setSubjects(cloudSubjects);
 
+      const storageKey =
+        getSubjectsStorageKey(user.id);
+
       await AsyncStorage.setItem(
-        SUBJECTS_STORAGE_KEY,
+        storageKey,
         JSON.stringify(cloudSubjects)
       );
 
@@ -127,31 +137,70 @@ export function SubjectProvider({
   };
 
   /*
-   * Load local data immediately.
-   * Then try to refresh from Supabase.
+   * Reinitialize whenever the authenticated
+   * user changes.
    */
   useEffect(() => {
+    let cancelled = false;
+
     const initializeSubjects =
       async () => {
-        await loadLocalSubjects();
-        await refreshSubjects();
+        if (!user?.id) {
+          setSubjects([]);
+          return;
+        }
+
+        try {
+          const storageKey =
+            getSubjectsStorageKey(user.id);
+
+          const savedSubjects =
+            await AsyncStorage.getItem(
+              storageKey
+            );
+
+          if (!cancelled) {
+            if (savedSubjects) {
+              setSubjects(
+                JSON.parse(savedSubjects)
+              );
+            } else {
+              setSubjects([]);
+            }
+          }
+
+          if (!cancelled) {
+            await refreshSubjects();
+          }
+        } catch (error) {
+          if (!cancelled) {
+            console.log(
+              "Error initializing subjects:",
+              error
+            );
+          }
+        }
       };
 
     initializeSubjects();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   /*
-   * For now, adding subjects remains
-   * local-only.
-   *
-   * Cloud subject management will later
-   * be handled through the appropriate
-   * class/teacher/admin flow.
+   * Add a subject to the current user's
+   * local subject list.
    */
   const addSubject = async (
     name: string,
     hasLab: boolean
   ): Promise<void> => {
+    if (!user?.id) {
+      return;
+    }
+
     try {
       const newSubject: Subject = {
         name,
@@ -165,8 +214,11 @@ export function SubjectProvider({
 
       setSubjects(updatedSubjects);
 
+      const storageKey =
+        getSubjectsStorageKey(user.id);
+
       await AsyncStorage.setItem(
-        SUBJECTS_STORAGE_KEY,
+        storageKey,
         JSON.stringify(updatedSubjects)
       );
     } catch (error) {
@@ -178,12 +230,16 @@ export function SubjectProvider({
   };
 
   /*
-   * For now, deleting subjects remains
-   * local-only.
+   * Delete a subject from the current
+   * user's local subject list.
    */
   const deleteSubject = async (
     name: string
   ) => {
+    if (!user?.id) {
+      return;
+    }
+
     try {
       const updatedSubjects =
         subjects.filter(
@@ -193,8 +249,11 @@ export function SubjectProvider({
 
       setSubjects(updatedSubjects);
 
+      const storageKey =
+        getSubjectsStorageKey(user.id);
+
       await AsyncStorage.setItem(
-        SUBJECTS_STORAGE_KEY,
+        storageKey,
         JSON.stringify(updatedSubjects)
       );
     } catch (error) {

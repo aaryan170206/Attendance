@@ -1,3 +1,5 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import { getMySubjects } from "@/lib/subjects";
 import { supabase } from "@/lib/supabase";
 
@@ -389,7 +391,8 @@ export async function getMyAttendance(): Promise<{
         type: row.type,
         status: row.status,
         subject_id: row.subject_id,
-        subject_name: row.subjects?.name ?? "",
+        subject_name:
+          row.subjects?.name ?? "",
       }));
 
     return {
@@ -443,7 +446,10 @@ export async function migrateLocalAttendance(
       for (const subjectName of Object.keys(subjects)) {
         const record = subjects[subjectName];
 
-        for (const type of ["theory", "lab"] as const) {
+        for (const type of [
+          "theory",
+          "lab",
+        ] as const) {
           const status = record[type];
 
           if (!status) {
@@ -460,12 +466,13 @@ export async function migrateLocalAttendance(
             continue;
           }
 
-          const { error } = await saveAttendance(
-            date,
-            subjectName,
-            type,
-            status
-          );
+          const { error } =
+            await saveAttendance(
+              date,
+              subjectName,
+              type,
+              status
+            );
 
           if (error) {
             console.log(
@@ -491,6 +498,349 @@ export async function migrateLocalAttendance(
           ? error
           : new Error(
               "Could not migrate local attendance."
+            ),
+    };
+  }
+}
+
+/*
+ * Pending attendance record for
+ * offline create/update operations.
+ */
+type PendingAttendance = {
+  date: string;
+  subjectName: string;
+  type: "theory" | "lab";
+  status: CloudAttendanceStatus;
+};
+
+/*
+ * Pending attendance record for
+ * offline delete operations.
+ */
+type PendingAttendanceDelete = {
+  date: string;
+  subjectName: string;
+  type: "theory" | "lab";
+};
+
+function getPendingAttendanceKey(userId: string): string {
+  return `@pending_attendance_${userId}`;
+}
+
+function getPendingAttendanceDeleteKey(userId: string): string {
+  return `@pending_attendance_delete_${userId}`;
+}
+
+async function getCurrentUserId(): Promise<string | null> {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) return null;
+  return user.id;
+}
+
+/*
+ * Add an attendance record to the
+ * offline create/update queue.
+ */
+export async function addPendingAttendance(
+  record: PendingAttendance
+): Promise<void> {
+  try {
+    const userId = await getCurrentUserId();
+
+    if (!userId) {
+      console.log("⚠️ Cannot queue attendance without an authenticated user.");
+      return;
+    }
+
+    const pendingAttendanceKey = getPendingAttendanceKey(userId);
+
+    const savedQueue =
+      await AsyncStorage.getItem(
+        pendingAttendanceKey
+      );
+
+    const queue: PendingAttendance[] =
+      savedQueue
+        ? JSON.parse(savedQueue)
+        : [];
+
+    // Remove an older pending record for the
+    // same attendance entry.
+    const filteredQueue = queue.filter(
+      (item) =>
+        !(
+          item.date === record.date &&
+          item.subjectName ===
+            record.subjectName &&
+          item.type === record.type
+        )
+    );
+
+    filteredQueue.push(record);
+
+    await AsyncStorage.setItem(
+      pendingAttendanceKey,
+      JSON.stringify(filteredQueue)
+    );
+
+    console.log(
+      "📦 Attendance added to offline queue"
+    );
+  } catch (error) {
+    console.log(
+      "Error adding attendance to offline queue:",
+      error
+    );
+  }
+}
+
+/*
+ * Add an attendance deletion to the
+ * offline delete queue.
+ */
+export async function addPendingAttendanceDelete(
+  record: PendingAttendanceDelete
+): Promise<void> {
+  try {
+    const userId = await getCurrentUserId();
+
+    if (!userId) {
+      console.log("⚠️ Cannot queue attendance deletion without an authenticated user.");
+      return;
+    }
+
+    const pendingAttendanceDeleteKey =
+      getPendingAttendanceDeleteKey(userId);
+
+    const savedQueue =
+      await AsyncStorage.getItem(
+        pendingAttendanceDeleteKey
+      );
+
+    const queue: PendingAttendanceDelete[] =
+      savedQueue
+        ? JSON.parse(savedQueue)
+        : [];
+
+    const filteredQueue = queue.filter(
+      (item) =>
+        !(
+          item.date === record.date &&
+          item.subjectName ===
+            record.subjectName &&
+          item.type === record.type
+        )
+    );
+
+    filteredQueue.push(record);
+
+    await AsyncStorage.setItem(
+      pendingAttendanceDeleteKey,
+      JSON.stringify(filteredQueue)
+    );
+
+    console.log(
+      "📦 Attendance deletion added to offline queue"
+    );
+  } catch (error) {
+    console.log(
+      "Error adding attendance deletion to offline queue:",
+      error
+    );
+  }
+}
+
+/*
+ * Synchronize pending attendance
+ * create/update operations.
+ */
+export async function syncPendingAttendance(): Promise<{
+  error: Error | null;
+}> {
+  try {
+    const userId = await getCurrentUserId();
+
+    if (!userId) {
+      return { error: new Error("No authenticated user found.") };
+    }
+
+    const pendingAttendanceKey = getPendingAttendanceKey(userId);
+
+    const savedQueue =
+      await AsyncStorage.getItem(
+        pendingAttendanceKey
+      );
+
+    if (!savedQueue) {
+      return { error: null };
+    }
+
+    const queue: PendingAttendance[] =
+      JSON.parse(savedQueue);
+
+    if (queue.length === 0) {
+      return { error: null };
+    }
+
+    console.log(
+      `📦 Found ${queue.length} pending attendance record(s)`
+    );
+
+    const remainingQueue: PendingAttendance[] =
+      [];
+
+    for (const record of queue) {
+      const { error } =
+        await saveAttendance(
+          record.date,
+          record.subjectName,
+          record.type,
+          record.status
+        );
+
+      if (error) {
+        console.log(
+          `⚠️ Retry failed for ${record.subjectName} on ${record.date}:`,
+          error
+        );
+
+        remainingQueue.push(record);
+      } else {
+        console.log(
+          `✅ Pending attendance synced: ${record.subjectName} ${record.type} on ${record.date}`
+        );
+      }
+    }
+
+    /*
+     * Keep only records that still failed.
+     */
+    if (remainingQueue.length === 0) {
+      await AsyncStorage.removeItem(
+        pendingAttendanceKey
+      );
+
+      console.log(
+        "✅ Offline attendance queue cleared"
+      );
+    } else {
+      await AsyncStorage.setItem(
+        pendingAttendanceKey,
+        JSON.stringify(remainingQueue)
+      );
+
+      console.log(
+        `📦 ${remainingQueue.length} record(s) remain in the offline queue`
+      );
+    }
+
+    return { error: null };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error
+          : new Error(
+              "Could not sync pending attendance."
+            ),
+    };
+  }
+}
+
+/*
+ * Synchronize pending attendance
+ * delete operations.
+ */
+export async function syncPendingAttendanceDeletes(): Promise<{
+  error: Error | null;
+}> {
+  try {
+    const userId = await getCurrentUserId();
+
+    if (!userId) {
+      return { error: new Error("No authenticated user found.") };
+    }
+
+    const pendingAttendanceDeleteKey =
+      getPendingAttendanceDeleteKey(userId);
+
+    const savedQueue =
+      await AsyncStorage.getItem(
+        pendingAttendanceDeleteKey
+      );
+
+    if (!savedQueue) {
+      return { error: null };
+    }
+
+    const queue: PendingAttendanceDelete[] =
+      JSON.parse(savedQueue);
+
+    if (queue.length === 0) {
+      return { error: null };
+    }
+
+    console.log(
+      `🗑️ Found ${queue.length} pending attendance deletion(s)`
+    );
+
+    const remainingQueue: PendingAttendanceDelete[] =
+      [];
+
+    for (const record of queue) {
+      const { error } =
+        await deleteAttendance(
+          record.date,
+          record.subjectName,
+          record.type
+        );
+
+      if (error) {
+        console.log(
+          `⚠️ Retry deletion failed for ${record.subjectName} on ${record.date}:`,
+          error
+        );
+
+        remainingQueue.push(record);
+      } else {
+        console.log(
+          `✅ Pending attendance deletion synced: ${record.subjectName} ${record.type} on ${record.date}`
+        );
+      }
+    }
+
+    if (remainingQueue.length === 0) {
+      await AsyncStorage.removeItem(
+        pendingAttendanceDeleteKey
+      );
+
+      console.log(
+        "✅ Offline attendance deletion queue cleared"
+      );
+    } else {
+      await AsyncStorage.setItem(
+        pendingAttendanceDeleteKey,
+        JSON.stringify(remainingQueue)
+      );
+
+      console.log(
+        `🗑️ ${remainingQueue.length} deletion(s) remain in the offline queue`
+      );
+    }
+
+    return { error: null };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error
+          : new Error(
+              "Could not sync pending attendance deletions."
             ),
     };
   }

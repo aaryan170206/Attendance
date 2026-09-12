@@ -1,4 +1,5 @@
 import { useState } from "react";
+
 import {
   Pressable,
   ScrollView,
@@ -52,6 +53,58 @@ export default function DashboardScreen() {
     }
 
     return colors.absent;
+  };
+
+  /*
+   * -------------------------
+   * ATTENDANCE GUIDANCE
+   * -------------------------
+   */
+
+  const getClassesNeededFor75 = (
+    attended: number,
+    total: number
+  ) => {
+    if (total === 0) {
+      return 0;
+    }
+
+    if (attended / total >= 0.75) {
+      return 0;
+    }
+
+    let classesNeeded = 0;
+
+    while (
+      (attended + classesNeeded) /
+        (total + classesNeeded) <
+      0.75
+    ) {
+      classesNeeded++;
+    }
+
+    return classesNeeded;
+  };
+
+  const getClassesCanMiss = (
+    attended: number,
+    total: number
+  ) => {
+    if (total === 0) {
+      return 0;
+    }
+
+    let classesCanMiss = 0;
+
+    while (
+      attended /
+        (total + classesCanMiss + 1) >=
+      0.75
+    ) {
+      classesCanMiss++;
+    }
+
+    return classesCanMiss;
   };
 
   /*
@@ -219,7 +272,9 @@ export default function DashboardScreen() {
         <View
           style={[
             styles.progressBackground,
-            { backgroundColor: colors.cardSecondary },
+            {
+              backgroundColor: colors.cardSecondary,
+            },
           ]}
         >
           <View
@@ -594,6 +649,18 @@ export default function DashboardScreen() {
         const isExpanded =
           expandedSubject === subject.name;
 
+        const classesNeededFor75 =
+          getClassesNeededFor75(
+            subject.totalAttended,
+            subject.totalClasses
+          );
+
+        const classesCanMiss =
+          getClassesCanMiss(
+            subject.totalAttended,
+            subject.totalClasses
+          );
+
         return (
           <Pressable
             key={subject.name}
@@ -700,6 +767,106 @@ export default function DashboardScreen() {
                 >
                   🚨 Attendance critically low
                 </Text>
+              )}
+
+            {/* ATTENDANCE GUIDANCE */}
+
+            {subject.totalClasses > 0 &&
+              subject.percentage < 75 && (
+                <View
+                  style={[
+                    styles.guidanceBox,
+                    {
+                      backgroundColor:
+                        colors.cardSecondary,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.guidanceTitle,
+                      {
+                        color: colors.text,
+                      },
+                    ]}
+                  >
+                    📈 Attendance Recovery
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.guidanceText,
+                      {
+                        color:
+                          colors.textSecondary,
+                      },
+                    ]}
+                  >
+                    Attend{" "}
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {classesNeededFor75}
+                    </Text>{" "}
+                    more{" "}
+                    {classesNeededFor75 === 1
+                      ? "class"
+                      : "classes"}{" "}
+                    to reach 75%.
+                  </Text>
+                </View>
+              )}
+
+            {subject.totalClasses > 0 &&
+              subject.percentage >= 75 && (
+                <View
+                  style={[
+                    styles.guidanceBox,
+                    {
+                      backgroundColor:
+                        colors.cardSecondary,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.guidanceTitle,
+                      {
+                        color: colors.text,
+                      },
+                    ]}
+                  >
+                    🛡️ Attendance Safe
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.guidanceText,
+                      {
+                        color:
+                          colors.textSecondary,
+                      },
+                    ]}
+                  >
+                    You can miss{" "}
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {classesCanMiss}
+                    </Text>{" "}
+                    more{" "}
+                    {classesCanMiss === 1
+                      ? "class"
+                      : "classes"}{" "}
+                    and stay at or above 75%.
+                  </Text>
+                </View>
               )}
 
             {/* EXPANDED DETAILS */}
@@ -1047,6 +1214,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     marginTop: 10,
+  },
+
+  guidanceBox: {
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 12,
+  },
+
+  guidanceTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+
+  guidanceText: {
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 18,
   },
 
   detailsContainer: {

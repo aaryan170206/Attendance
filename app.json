@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Attendance",
-    "slug": "Attendance",
+    "name": "AttendFlow",
+    "slug": "attendflow",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -17,7 +17,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.aaryan170206.attendflow"
     },
     "web": {
       "output": "static",
@@ -37,6 +38,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d79355b2-25d0-456e-99bb-69e892daacb5"
+      }
+    },
+    "owner": "aaryan170206s-team"
   }
 }
