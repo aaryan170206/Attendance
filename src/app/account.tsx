@@ -1,17 +1,18 @@
+
 import {
-    Alert,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 
 export default function AccountScreen() {
-  const { user, signOut } = useAuth();
+  const { user, role, signOut } = useAuth();
   const { colors } = useTheme();
 
   const handleSignOut = () => {
@@ -27,8 +28,7 @@ export default function AccountScreen() {
           text: "Sign Out",
           style: "destructive",
           onPress: async () => {
-            const { error } =
-              await signOut();
+            const { error } = await signOut();
 
             if (error) {
               Alert.alert(
@@ -42,19 +42,30 @@ export default function AccountScreen() {
     );
   };
 
+  const getRoleName = () => {
+    switch (role) {
+      case "student":
+        return "Student";
+      case "teacher":
+        return "Teacher";
+      case "admin":
+        return "Admin";
+      default:
+        return "Not available";
+    }
+  };
+
   return (
     <ScrollView
       style={[
         styles.container,
         {
-          backgroundColor:
-            colors.background,
+          backgroundColor: colors.background,
         },
       ]}
-      contentContainerStyle={
-        styles.content
-      }
+      contentContainerStyle={styles.content}
     >
+      {/* Page Heading */}
       <Text
         style={[
           styles.title,
@@ -70,22 +81,20 @@ export default function AccountScreen() {
         style={[
           styles.subtitle,
           {
-            color:
-              colors.textSecondary,
+            color: colors.textSecondary,
           },
         ]}
       >
         Manage your account
       </Text>
 
+      {/* Account Information */}
       <View
         style={[
           styles.card,
           {
-            backgroundColor:
-              colors.card,
-            borderColor:
-              colors.border,
+            backgroundColor: colors.card,
+            borderColor: colors.border,
           },
         ]}
       >
@@ -93,8 +102,7 @@ export default function AccountScreen() {
           style={[
             styles.label,
             {
-              color:
-                colors.textSecondary,
+              color: colors.textSecondary,
             },
           ]}
         >
@@ -109,16 +117,14 @@ export default function AccountScreen() {
             },
           ]}
         >
-          {user?.user_metadata
-            ?.full_name || "Student"}
+          {user?.user_metadata?.full_name || "User"}
         </Text>
 
         <Text
           style={[
             styles.label,
             {
-              color:
-                colors.textSecondary,
+              color: colors.textSecondary,
             },
           ]}
         >
@@ -140,8 +146,7 @@ export default function AccountScreen() {
           style={[
             styles.label,
             {
-              color:
-                colors.textSecondary,
+              color: colors.textSecondary,
             },
           ]}
         >
@@ -153,20 +158,21 @@ export default function AccountScreen() {
             styles.value,
             {
               color: colors.text,
+              textTransform: "capitalize",
             },
           ]}
         >
-          Student
+          {getRoleName()}
         </Text>
       </View>
 
+      {/* Sign Out Button */}
       <Pressable
         onPress={handleSignOut}
         style={[
           styles.logoutButton,
           {
-            backgroundColor:
-              colors.absent,
+            backgroundColor: colors.absent,
           },
         ]}
       >
