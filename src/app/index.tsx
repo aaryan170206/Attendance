@@ -1,9 +1,11 @@
+
 import { useAttendance } from "@/context/AttendanceContext";
 import { useSubjects } from "@/context/SubjectContext";
 import { useTheme } from "@/context/ThemeContext";
 import { calculateAttendance } from "@/utils/attendanceCalculator";
 
 import { useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   Alert,
@@ -28,12 +30,10 @@ export default function HomeScreen() {
   } = useAttendance();
 
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
 
-  const [subjectName, setSubjectName] =
-    useState("");
-
-  const [hasLab, setHasLab] =
-    useState(false);
+  const [subjectName, setSubjectName] = useState("");
+  const [hasLab, setHasLab] = useState(false);
 
   const handleAddSubject = () => {
     if (subjectName.trim() !== "") {
@@ -78,13 +78,17 @@ export default function HomeScreen() {
       style={[
         styles.container,
         {
-          backgroundColor:
-            colors.background,
+          backgroundColor: colors.background,
         },
       ]}
-      contentContainerStyle={
-        styles.content
-      }
+      contentContainerStyle={[
+        styles.content,
+        {
+          paddingTop: insets.top + 20,
+          paddingLeft: insets.left + 20,
+          paddingRight: insets.right + 20,
+        },
+      ]}
       showsVerticalScrollIndicator={false}
     >
       {/* HEADER */}
@@ -104,8 +108,7 @@ export default function HomeScreen() {
         style={[
           styles.subtitle,
           {
-            color:
-              colors.textSecondary,
+            color: colors.textSecondary,
           },
         ]}
       >
@@ -118,10 +121,8 @@ export default function HomeScreen() {
         style={[
           styles.addCard,
           {
-            backgroundColor:
-              colors.card,
-            borderColor:
-              colors.border,
+            backgroundColor: colors.card,
+            borderColor: colors.border,
           },
         ]}
       >
@@ -147,10 +148,8 @@ export default function HomeScreen() {
             styles.input,
             {
               color: colors.text,
-              backgroundColor:
-                colors.cardSecondary,
-              borderColor:
-                colors.border,
+              backgroundColor: colors.cardSecondary,
+              borderColor: colors.border,
             },
           ]}
         />
@@ -158,17 +157,14 @@ export default function HomeScreen() {
         {/* LAB TOGGLE */}
 
         <Pressable
-          onPress={() =>
-            setHasLab(!hasLab)
-          }
+          onPress={() => setHasLab(!hasLab)}
           style={[
             styles.labToggle,
             {
               backgroundColor: hasLab
                 ? colors.labPresent
                 : colors.cardSecondary,
-              borderColor:
-                colors.border,
+              borderColor: colors.border,
             },
           ]}
         >
@@ -176,23 +172,17 @@ export default function HomeScreen() {
             style={[
               styles.checkbox,
               {
-                borderColor:
-                  hasLab
-                    ? colors.labPresent
-                    : colors.textSecondary,
-                backgroundColor:
-                  hasLab
-                    ? colors.labPresent
-                    : "transparent",
+                borderColor: hasLab
+                  ? colors.labPresent
+                  : colors.textSecondary,
+                backgroundColor: hasLab
+                  ? colors.labPresent
+                  : "transparent",
               },
             ]}
           >
             {hasLab && (
-              <Text
-                style={
-                  styles.checkmark
-                }
-              >
+              <Text style={styles.checkmark}>
                 ✓
               </Text>
             )}
@@ -219,14 +209,11 @@ export default function HomeScreen() {
           style={[
             styles.addButton,
             {
-              backgroundColor:
-                colors.primary,
+              backgroundColor: colors.primary,
             },
           ]}
         >
-          <Text
-            style={styles.addButtonText}
-          >
+          <Text style={styles.addButtonText}>
             Add Subject
           </Text>
         </Pressable>
@@ -250,10 +237,8 @@ export default function HomeScreen() {
           style={[
             styles.emptyCard,
             {
-              backgroundColor:
-                colors.card,
-              borderColor:
-                colors.border,
+              backgroundColor: colors.card,
+              borderColor: colors.border,
             },
           ]}
         >
@@ -261,8 +246,7 @@ export default function HomeScreen() {
             style={[
               styles.emptyText,
               {
-                color:
-                  colors.textSecondary,
+                color: colors.textSecondary,
               },
             ]}
           >
@@ -278,14 +262,13 @@ export default function HomeScreen() {
               "theory"
             );
 
-          const labStats =
-            subject.hasLab
-              ? calculateAttendance(
-                  attendance,
-                  subject.name,
-                  "lab"
-                )
-              : null;
+          const labStats = subject.hasLab
+            ? calculateAttendance(
+                attendance,
+                subject.name,
+                "lab"
+              )
+            : null;
 
           return (
             <View
@@ -293,31 +276,20 @@ export default function HomeScreen() {
               style={[
                 styles.subjectCard,
                 {
-                  backgroundColor:
-                    colors.card,
-                  borderColor:
-                    colors.border,
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
                 },
               ]}
             >
               {/* SUBJECT HEADER */}
 
-              <View
-                style={
-                  styles.subjectHeader
-                }
-              >
-                <View
-                  style={
-                    styles.subjectInfo
-                  }
-                >
+              <View style={styles.subjectHeader}>
+                <View style={styles.subjectInfo}>
                   <Text
                     style={[
                       styles.subjectName,
                       {
-                        color:
-                          colors.text,
+                        color: colors.text,
                       },
                     ]}
                   >
@@ -328,8 +300,7 @@ export default function HomeScreen() {
                     style={[
                       styles.subjectType,
                       {
-                        color:
-                          colors.textSecondary,
+                        color: colors.textSecondary,
                       },
                     ]}
                   >
@@ -359,8 +330,7 @@ export default function HomeScreen() {
                     style={[
                       styles.deleteText,
                       {
-                        color:
-                          colors.absent,
+                        color: colors.absent,
                       },
                     ]}
                   >
@@ -371,17 +341,12 @@ export default function HomeScreen() {
 
               {/* THEORY */}
 
-              <View
-                style={
-                  styles.attendanceRow
-                }
-              >
+              <View style={styles.attendanceRow}>
                 <Text
                   style={[
                     styles.attendanceLabel,
                     {
-                      color:
-                        colors.textSecondary,
+                      color: colors.textSecondary,
                     },
                   ]}
                 >
@@ -393,20 +358,15 @@ export default function HomeScreen() {
                     styles.attendancePercentage,
                     {
                       color:
-                        theoryStats
-                          .percentage > 75
+                        theoryStats.percentage > 75
                           ? colors.present
-                          : theoryStats
-                              .percentage >=
-                            50
-                          ? colors.leftEarly
-                          : colors.absent,
+                          : theoryStats.percentage >= 50
+                            ? colors.leftEarly
+                            : colors.absent,
                     },
                   ]}
                 >
-                  {theoryStats.percentage.toFixed(
-                    1
-                  )}
+                  {theoryStats.percentage.toFixed(1)}
                   %
                 </Text>
               </View>
@@ -415,90 +375,61 @@ export default function HomeScreen() {
                 style={[
                   styles.attendanceClasses,
                   {
-                    color:
-                      colors.textSecondary,
+                    color: colors.textSecondary,
                   },
                 ]}
               >
-                {
-                  theoryStats.attendedClasses
-                }{" "}
-                /{" "}
-                {
-                  theoryStats.totalClasses
-                }{" "}
-                classes
+                {theoryStats.attendedClasses} /{" "}
+                {theoryStats.totalClasses} classes
               </Text>
 
               {/* LAB */}
 
-              {subject.hasLab &&
-                labStats && (
-                  <View
-                    style={
-                      styles.labSection
-                    }
-                  >
-                    <View
-                      style={
-                        styles.attendanceRow
-                      }
-                    >
-                      <Text
-                        style={[
-                          styles.attendanceLabel,
-                          {
-                            color:
-                              colors.textSecondary,
-                          },
-                        ]}
-                      >
-                        Lab
-                      </Text>
-
-                      <Text
-                        style={[
-                          styles.attendancePercentage,
-                          {
-                            color:
-                              labStats
-                                .percentage > 75
-                                ? colors.present
-                                : labStats
-                                    .percentage >=
-                                  50
-                                ? colors.leftEarly
-                                : colors.absent,
-                          },
-                        ]}
-                      >
-                        {labStats.percentage.toFixed(
-                          1
-                        )}
-                        %
-                      </Text>
-                    </View>
-
+              {subject.hasLab && labStats && (
+                <View style={styles.labSection}>
+                  <View style={styles.attendanceRow}>
                     <Text
                       style={[
-                        styles.attendanceClasses,
+                        styles.attendanceLabel,
                         {
-                          color:
-                            colors.textSecondary,
+                          color: colors.textSecondary,
                         },
                       ]}
                     >
-                      {
-                        labStats.attendedClasses
-                      }{" "}
-                      /{" "}
-                      {
-                        labStats.totalClasses
-                      }{" "}
-                      classes
+                      Lab
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.attendancePercentage,
+                        {
+                          color:
+                            labStats.percentage > 75
+                              ? colors.present
+                              : labStats.percentage >= 50
+                                ? colors.leftEarly
+                                : colors.absent,
+                        },
+                      ]}
+                    >
+                      {labStats.percentage.toFixed(1)}
+                      %
                     </Text>
                   </View>
-                )}
+
+                  <Text
+                    style={[
+                      styles.attendanceClasses,
+                      {
+                        color: colors.textSecondary,
+                      },
+                    ]}
+                  >
+                    {labStats.attendedClasses} /{" "}
+                    {labStats.totalClasses} classes
+                  </Text>
+                </View>
+              )}
             </View>
           );
         })
@@ -513,7 +444,6 @@ const styles = StyleSheet.create({
   },
 
   content: {
-    padding: 20,
     paddingBottom: 40,
   },
 

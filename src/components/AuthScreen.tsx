@@ -1,5 +1,5 @@
-import { useAuth } from "@/context/AuthContext";
-import { useTheme } from "@/context/ThemeContext";
+
+import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -14,25 +14,24 @@ import {
   View,
 } from "react-native";
 
+import AppCard from "@/components/AppCard";
+import { Layout, Spacing } from "@/constants/spacing";
+import { useAuth } from "@/context/AuthContext";
+import { useTheme } from "@/context/ThemeContext";
+
 export default function AuthScreen() {
   const { signIn, signUp } = useAuth();
   const { colors } = useTheme();
 
   const [isSignUp, setIsSignUp] = useState(false);
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const [fullName, setFullName] =
-    useState("");
-
-  const [email, setEmail] =
-    useState("");
-
-  const [password, setPassword] =
-    useState("");
-
-  const [confirmPassword, setConfirmPassword] =
-    useState("");
-
-  const [loading, setLoading] =
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] =
     useState(false);
 
   const handleSubmit = async () => {
@@ -83,10 +82,7 @@ export default function AuthScreen() {
         );
 
         if (error) {
-          Alert.alert(
-            "Sign Up Failed",
-            error.message
-          );
+          Alert.alert("Sign Up Failed", error.message);
           return;
         }
 
@@ -98,17 +94,13 @@ export default function AuthScreen() {
         setIsSignUp(false);
         setPassword("");
         setConfirmPassword("");
+        setShowPassword(false);
+        setShowConfirmPassword(false);
       } else {
-        const { error } = await signIn(
-          cleanEmail,
-          password
-        );
+        const { error } = await signIn(cleanEmail, password);
 
         if (error) {
-          Alert.alert(
-            "Sign In Failed",
-            error.message
-          );
+          Alert.alert("Sign In Failed", error.message);
         }
       }
     } catch (error) {
@@ -121,25 +113,90 @@ export default function AuthScreen() {
     }
   };
 
+  const renderInput = (
+    label: string,
+    value: string,
+    onChangeText: (value: string) => void,
+    placeholder: string,
+    options?: {
+      secure?: boolean;
+      visible?: boolean;
+      toggleVisibility?: () => void;
+      keyboardType?: "default" | "email-address";
+      autoCapitalize?: "none" | "words";
+      autoCorrect?: boolean;
+    }
+  ) => {
+    const isPassword = options?.secure === true;
+
+    return (
+      <View style={styles.field}>
+        <Text style={[styles.label, { color: colors.text }]}>
+          {label}
+        </Text>
+
+        <View
+          style={[
+            styles.inputContainer,
+            {
+              backgroundColor: colors.cardSecondary,
+              borderColor: colors.border,
+            },
+          ]}
+        >
+          <TextInput
+            value={value}
+            onChangeText={onChangeText}
+            placeholder={placeholder}
+            placeholderTextColor={colors.textSecondary}
+            keyboardType={options?.keyboardType ?? "default"}
+            autoCapitalize={options?.autoCapitalize ?? "none"}
+            autoCorrect={options?.autoCorrect ?? false}
+            secureTextEntry={
+              isPassword && !options?.visible
+            }
+            style={[
+              styles.input,
+              { color: colors.text },
+            ]}
+          />
+
+          {isPassword && options?.toggleVisibility && (
+            <Pressable
+              onPress={options.toggleVisibility}
+              style={styles.visibilityButton}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={
+                options.visible ? "Hide password" : "Show password"
+              }
+            >
+              <Ionicons
+                name={
+                  options.visible
+                    ? "eye-off-outline"
+                    : "eye-outline"
+                }
+                size={21}
+                color={colors.textSecondary}
+              />
+            </Pressable>
+          )}
+        </View>
+      </View>
+    );
+  };
+
   return (
     <KeyboardAvoidingView
       style={[
         styles.container,
-        {
-          backgroundColor:
-            colors.background,
-        },
+        { backgroundColor: colors.background },
       ]}
-      behavior={
-        Platform.OS === "ios"
-          ? "padding"
-          : undefined
-      }
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView
-        contentContainerStyle={
-          styles.content
-        }
+        contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -147,191 +204,74 @@ export default function AuthScreen() {
           <View
             style={[
               styles.logo,
-              {
-                backgroundColor:
-                  colors.primary,
-              },
+              { backgroundColor: colors.primary },
             ]}
           >
-            <Text style={styles.logoText}>
-              A
-            </Text>
+            <Text style={styles.logoText}>A</Text>
           </View>
 
-          <Text
-            style={[
-              styles.title,
-              {
-                color: colors.text,
-              },
-            ]}
-          >
+          <Text style={[styles.title, { color: colors.text }]}>
             Attendance Tracker
           </Text>
 
           <Text
             style={[
               styles.subtitle,
-              {
-                color:
-                  colors.textSecondary,
-              },
+              { color: colors.textSecondary },
             ]}
           >
-            {isSignUp
-              ? "Create your account"
-              : "Welcome back"}
+            {isSignUp ? "Create your account" : "Welcome back"}
           </Text>
         </View>
 
-        <View
-          style={[
-            styles.card,
+        <AppCard padding={22} style={styles.card}>
+          {isSignUp &&
+            renderInput(
+              "Full Name",
+              fullName,
+              setFullName,
+              "Enter your full name",
+              { autoCapitalize: "words" }
+            )}
+
+          {renderInput(
+            "Email",
+            email,
+            setEmail,
+            "Enter your email",
             {
-              backgroundColor:
-                colors.card,
-              borderColor:
-                colors.border,
-            },
-          ]}
-        >
-          {isSignUp && (
-            <>
-              <Text
-                style={[
-                  styles.label,
-                  {
-                    color: colors.text,
-                  },
-                ]}
-              >
-                Full Name
-              </Text>
-
-              <TextInput
-                value={fullName}
-                onChangeText={setFullName}
-                placeholder="Enter your full name"
-                placeholderTextColor={
-                  colors.textSecondary
-                }
-                autoCapitalize="words"
-                style={[
-                  styles.input,
-                  {
-                    color: colors.text,
-                    backgroundColor:
-                      colors.cardSecondary,
-                    borderColor:
-                      colors.border,
-                  },
-                ]}
-              />
-            </>
+              keyboardType: "email-address",
+              autoCapitalize: "none",
+              autoCorrect: false,
+            }
           )}
 
-          <Text
-            style={[
-              styles.label,
-              {
-                color: colors.text,
-              },
-            ]}
-          >
-            Email
-          </Text>
-
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            placeholder="Enter your email"
-            placeholderTextColor={
-              colors.textSecondary
+          {renderInput(
+            "Password",
+            password,
+            setPassword,
+            "Enter your password",
+            {
+              secure: true,
+              visible: showPassword,
+              toggleVisibility: () =>
+                setShowPassword(!showPassword),
             }
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            style={[
-              styles.input,
-              {
-                color: colors.text,
-                backgroundColor:
-                  colors.cardSecondary,
-                borderColor:
-                  colors.border,
-              },
-            ]}
-          />
-
-          <Text
-            style={[
-              styles.label,
-              {
-                color: colors.text,
-              },
-            ]}
-          >
-            Password
-          </Text>
-
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Enter your password"
-            placeholderTextColor={
-              colors.textSecondary
-            }
-            secureTextEntry
-            autoCapitalize="none"
-            style={[
-              styles.input,
-              {
-                color: colors.text,
-                backgroundColor:
-                  colors.cardSecondary,
-                borderColor:
-                  colors.border,
-              },
-            ]}
-          />
-
-          {isSignUp && (
-            <>
-              <Text
-                style={[
-                  styles.label,
-                  {
-                    color: colors.text,
-                  },
-                ]}
-              >
-                Confirm Password
-              </Text>
-
-              <TextInput
-                value={confirmPassword}
-                onChangeText={
-                  setConfirmPassword
-                }
-                placeholder="Confirm your password"
-                placeholderTextColor={
-                  colors.textSecondary
-                }
-                secureTextEntry
-                autoCapitalize="none"
-                style={[
-                  styles.input,
-                  {
-                    color: colors.text,
-                    backgroundColor:
-                      colors.cardSecondary,
-                    borderColor:
-                      colors.border,
-                  },
-                ]}
-              />
-            </>
           )}
+
+          {isSignUp &&
+            renderInput(
+              "Confirm Password",
+              confirmPassword,
+              setConfirmPassword,
+              "Confirm your password",
+              {
+                secure: true,
+                visible: showConfirmPassword,
+                toggleVisibility: () =>
+                  setShowConfirmPassword(!showConfirmPassword),
+              }
+            )}
 
           <Pressable
             onPress={handleSubmit}
@@ -339,43 +279,35 @@ export default function AuthScreen() {
             style={[
               styles.button,
               {
-                backgroundColor:
-                  colors.primary,
+                backgroundColor: colors.primary,
                 opacity: loading ? 0.7 : 1,
               },
             ]}
           >
             {loading ? (
-              <ActivityIndicator
-                color="#FFFFFF"
-              />
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text
-                style={styles.buttonText}
-              >
-                {isSignUp
-                  ? "Create Account"
-                  : "Sign In"}
+              <Text style={styles.buttonText}>
+                {isSignUp ? "Create Account" : "Sign In"}
               </Text>
             )}
           </Pressable>
-        </View>
+        </AppCard>
 
         <Pressable
           onPress={() => {
             setIsSignUp(!isSignUp);
             setPassword("");
             setConfirmPassword("");
+            setShowPassword(false);
+            setShowConfirmPassword(false);
           }}
           style={styles.switchButton}
         >
           <Text
             style={[
               styles.switchText,
-              {
-                color:
-                  colors.textSecondary,
-              },
+              { color: colors.textSecondary },
             ]}
           >
             {isSignUp
@@ -385,14 +317,10 @@ export default function AuthScreen() {
             <Text
               style={[
                 styles.switchLink,
-                {
-                  color: colors.primary,
-                },
+                { color: colors.primary },
               ]}
             >
-              {isSignUp
-                ? "Sign In"
-                : "Create Account"}
+              {isSignUp ? "Sign In" : "Create Account"}
             </Text>
           </Text>
         </Pressable>
@@ -409,21 +337,22 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     justifyContent: "center",
-    padding: 20,
+    paddingHorizontal: Layout.screenHorizontal,
+    paddingVertical: Spacing.xxxl,
   },
 
   header: {
     alignItems: "center",
-    marginBottom: 28,
+    marginBottom: Spacing.xxl,
   },
 
   logo: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
+    width: 66,
+    height: 66,
+    borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: Spacing.lg,
   },
 
   logoText: {
@@ -435,40 +364,56 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 27,
     fontWeight: "700",
+    textAlign: "center",
   },
 
   subtitle: {
     fontSize: 15,
-    marginTop: 6,
+    marginTop: Spacing.sm,
   },
 
   card: {
     borderRadius: 20,
-    borderWidth: 1,
-    padding: 20,
+  },
+
+  field: {
+    marginBottom: Spacing.lg,
   },
 
   label: {
     fontSize: 14,
     fontWeight: "600",
-    marginBottom: 7,
+    marginBottom: Spacing.sm,
+  },
+
+  inputContainer: {
+    minHeight: Layout.inputHeight,
+    borderRadius: Layout.buttonRadius,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
   },
 
   input: {
-    height: 50,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 14,
+    flex: 1,
+    minHeight: Layout.inputHeight - 2,
+    paddingHorizontal: Layout.inputPadding,
     fontSize: 15,
-    marginBottom: 16,
+  },
+
+  visibilityButton: {
+    width: 48,
+    height: Layout.inputHeight - 2,
+    justifyContent: "center",
+    alignItems: "center",
   },
 
   button: {
-    height: 50,
-    borderRadius: 12,
+    height: Layout.buttonHeight,
+    borderRadius: Layout.buttonRadius,
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 4,
+    marginTop: Spacing.xs,
   },
 
   buttonText: {
@@ -479,11 +424,13 @@ const styles = StyleSheet.create({
 
   switchButton: {
     alignItems: "center",
-    marginTop: 20,
+    marginTop: Spacing.xl,
+    paddingVertical: Spacing.sm,
   },
 
   switchText: {
     fontSize: 14,
+    textAlign: "center",
   },
 
   switchLink: {
