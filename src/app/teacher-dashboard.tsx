@@ -180,6 +180,8 @@ const createStyles = (
 
     container: {
       padding: 20,
+      paddingTop: 68,
+      paddingBottom: 20,
       flexGrow: 1,
     },
 

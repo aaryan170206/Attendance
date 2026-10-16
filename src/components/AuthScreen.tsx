@@ -25,6 +25,7 @@ export default function AuthScreen() {
 
   const [isSignUp, setIsSignUp] = useState(false);
   const [fullName, setFullName] = useState("");
+  const [rollNumber, setRollNumber] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -54,6 +55,14 @@ export default function AuthScreen() {
         return;
       }
 
+      if (!rollNumber.trim()) {
+        Alert.alert(
+          "Missing information",
+          "Please enter your roll number."
+        );
+        return;
+      }
+
       if (password.length < 6) {
         Alert.alert(
           "Password too short",
@@ -78,7 +87,8 @@ export default function AuthScreen() {
         const { error } = await signUp(
           cleanEmail,
           password,
-          fullName.trim()
+          fullName.trim(),
+          rollNumber.trim()
         );
 
         if (error) {
@@ -96,6 +106,7 @@ export default function AuthScreen() {
         setConfirmPassword("");
         setShowPassword(false);
         setShowConfirmPassword(false);
+        setRollNumber("");
       } else {
         const { error } = await signIn(cleanEmail, password);
 
@@ -234,6 +245,15 @@ export default function AuthScreen() {
               { autoCapitalize: "words" }
             )}
 
+          {isSignUp &&
+            renderInput(
+              "Roll Number",
+              rollNumber,
+              setRollNumber,
+              "Enter your assigned roll number",
+              { autoCapitalize: "none" }
+            )}
+
           {renderInput(
             "Email",
             email,
@@ -299,6 +319,7 @@ export default function AuthScreen() {
             setIsSignUp(!isSignUp);
             setPassword("");
             setConfirmPassword("");
+            setRollNumber("");
             setShowPassword(false);
             setShowConfirmPassword(false);
           }}

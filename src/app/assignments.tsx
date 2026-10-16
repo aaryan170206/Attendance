@@ -1,14 +1,17 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    FlatList,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { Layout, Spacing } from '@/constants/spacing';
 import { useTheme } from '@/context/ThemeContext';
 import { supabase } from '@/lib/supabase';
 
@@ -37,6 +40,7 @@ type AssignmentItem = Assignment & {
 
 export default function AssignmentsScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const [assignments, setAssignments] = useState<AssignmentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -254,6 +258,7 @@ export default function AssignmentsScreen() {
             <Text style={[styles.label, { color: colors.textSecondary }]}>
               Semester
             </Text>
+
             <Text style={[styles.value, { color: colors.text }]}>
               {item.semester ?? '—'}
             </Text>
@@ -263,6 +268,7 @@ export default function AssignmentsScreen() {
             <Text style={[styles.label, { color: colors.textSecondary }]}>
               Due date
             </Text>
+
             <Text style={[styles.value, { color: colors.text }]}>
               {formatDate(item.due_date)}
             </Text>
@@ -287,6 +293,7 @@ export default function AssignmentsScreen() {
         ]}
       >
         <ActivityIndicator size="large" color={colors.primary} />
+
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
           Loading assignments...
         </Text>
@@ -301,7 +308,16 @@ export default function AssignmentsScreen() {
         { backgroundColor: colors.background },
       ]}
     >
-      <View style={styles.header}>
+      <View
+        style={[
+          styles.header,
+          {
+            paddingHorizontal: Layout.screenHorizontal,
+            paddingTop: insets.top +28,
+            paddingBottom: Spacing.lg,
+          },
+        ]}
+      >
         <Text style={[styles.heading, { color: colors.text }]}>
           Assignments
         </Text>
@@ -322,11 +338,15 @@ export default function AssignmentsScreen() {
           data={assignments}
           renderItem={renderAssignment}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={
+          contentContainerStyle={[
             assignments.length === 0
               ? styles.emptyContainer
-              : styles.listContent
-          }
+              : styles.listContent,
+            {
+              paddingHorizontal: Layout.screenHorizontal,
+              paddingBottom: Spacing.xxxl,
+            },
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -359,53 +379,57 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
-  },
+
+  header: {},
+
   heading: {
-    fontSize: 26,
+    fontSize: 30,
     fontWeight: 'bold',
   },
+
   subheading: {
-    fontSize: 13,
-    marginTop: 5,
+    fontSize: 15,
+    marginTop: Spacing.xs,
   },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-  },
+
+  listContent: {},
+
   card: {
     borderWidth: 1,
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 14,
+    borderRadius: Layout.cardRadius,
+    padding: Layout.cardPadding,
+    marginBottom: Spacing.lg,
   },
+
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
   },
+
   subject: {
     fontSize: 12,
     fontWeight: '700',
     marginBottom: 5,
   },
+
   title: {
     fontSize: 17,
     fontWeight: '700',
   },
+
   statusBadge: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 20,
   },
+
   description: {
     fontSize: 13,
     lineHeight: 19,
-    marginTop: 12,
+    marginTop: Spacing.md,
   },
+
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -413,40 +437,48 @@ const styles = StyleSheet.create({
     marginTop: 15,
     paddingTop: 12,
   },
+
   label: {
     fontSize: 11,
   },
+
   value: {
     fontSize: 13,
     fontWeight: '600',
     marginTop: 4,
   },
+
   submittedDate: {
     fontSize: 11,
     fontWeight: '600',
-    marginTop: 12,
+    marginTop: Spacing.md,
   },
+
   center: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
+
   loadingText: {
     marginTop: 10,
     fontSize: 13,
   },
+
   emptyContainer: {
     flexGrow: 1,
     justifyContent: 'center',
   },
+
   emptyTitle: {
     fontSize: 18,
     fontWeight: '700',
   },
+
   emptySubtitle: {
     fontSize: 13,
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: Spacing.sm,
   },
 });

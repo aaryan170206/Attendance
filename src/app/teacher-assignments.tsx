@@ -425,8 +425,9 @@ export default function TeacherAssignments() {
       backgroundColor: colors.background,
     },
     content: {
-      padding: 20,
-      paddingBottom: 35,
+    paddingHorizontal: 20,
+    paddingTop: 68,
+    paddingBottom: 35,
     },
     heading: {
       fontSize: 30,

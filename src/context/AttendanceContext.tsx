@@ -68,7 +68,7 @@ export function AttendanceProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   const [attendance, setAttendance] =
     useState<AttendanceData>({});
@@ -76,10 +76,6 @@ export function AttendanceProvider({
   /*
    * Create a storage key that belongs
    * only to the currently logged-in user.
-   *
-   * Example:
-   *
-   * @attendance_<user-id>
    */
   const getAttendanceStorageKey = (
     userId: string
@@ -90,21 +86,21 @@ export function AttendanceProvider({
   /*
    * Initialize attendance whenever
    * the authenticated user changes.
-   *
-   * This is important because Account A
-   * and Account B must have completely
-   * separate local attendance caches.
    */
   useEffect(() => {
     let cancelled = false;
 
     const initializeAttendance = async () => {
       /*
+       * Wait until authentication has finished.
+       */
+      if (authLoading) {
+        return;
+      }
+
+      /*
        * No logged-in user.
-       *
-       * Clear the in-memory attendance so
-       * the previous account's data cannot
-       * remain visible after logout.
+       * Clear the in-memory attendance.
        */
       if (!user) {
         setAttendance({});
@@ -120,12 +116,9 @@ export function AttendanceProvider({
          *    only to this user.
          */
         const savedAttendance =
-          await AsyncStorage.getItem(
-            storageKey
-          );
+          await AsyncStorage.getItem(storageKey);
 
-        let localAttendance: AttendanceData =
-          {};
+        let localAttendance: AttendanceData = {};
 
         if (savedAttendance) {
           try {
@@ -139,35 +132,11 @@ export function AttendanceProvider({
 
             localAttendance = {};
           }
-
-          if (!cancelled) {
-            setAttendance(localAttendance);
-          }
-        } else {
-          /*
-           * If this user has no local cache,
-           * make sure no previous user's
-           * in-memory data remains visible.
-           */
-          if (!cancelled) {
-            setAttendance({});
-          }
         }
 
-        /*
-         * IMPORTANT:
-         *
-         * We intentionally DO NOT migrate
-         * the old global "@attendance" key.
-         *
-         * That old key was shared by all
-         * accounts and could belong to another
-         * user.
-         *
-         * Existing attendance that was already
-         * migrated to Supabase will be downloaded
-         * below.
-         */
+        if (!cancelled) {
+          setAttendance(localAttendance);
+        }
 
         /*
          * 2. Load this user's latest
@@ -188,10 +157,6 @@ export function AttendanceProvider({
             error
           );
 
-          /*
-           * Keep the user's own local cache
-           * if cloud loading fails.
-           */
           return;
         }
 
@@ -211,31 +176,23 @@ export function AttendanceProvider({
             return;
           }
 
+          if (!cloudData[record.attendance_date]) {
+            cloudData[record.attendance_date] = {};
+          }
+
           if (
-            !cloudData[
-              record.attendance_date
+            !cloudData[record.attendance_date][
+              record.subject_name
             ]
           ) {
-            cloudData[
-              record.attendance_date
+            cloudData[record.attendance_date][
+              record.subject_name
             ] = {};
           }
 
-          if (
-            !cloudData[
-              record.attendance_date
-            ][record.subject_name]
-          ) {
-            cloudData[
-              record.attendance_date
-            ][record.subject_name] = {};
-          }
-
-          cloudData[
-            record.attendance_date
-          ][record.subject_name][
-            record.type
-          ] = record.status;
+          cloudData[record.attendance_date][
+            record.subject_name
+          ][record.type] = record.status;
         });
 
         /*
@@ -271,16 +228,19 @@ export function AttendanceProvider({
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, authLoading]);
 
   /*
    * Listen for internet connectivity changes.
    *
-   * When internet becomes available,
-   * retry pending attendance records
-   * and pending attendance deletions.
+   * Wait until authentication is complete
+   * and a user is logged in before syncing.
    */
   useEffect(() => {
+    if (authLoading || !user) {
+      return;
+    }
+
     const unsubscribe =
       NetInfo.addEventListener(
         async (state) => {
@@ -295,8 +255,7 @@ export function AttendanceProvider({
              */
             const {
               error: attendanceSyncError,
-            } =
-              await syncPendingAttendance();
+            } = await syncPendingAttendance();
 
             if (attendanceSyncError) {
               console.log(
@@ -311,8 +270,7 @@ export function AttendanceProvider({
              */
             const {
               error: deletionSyncError,
-            } =
-              await syncPendingAttendanceDeletes();
+            } = await syncPendingAttendanceDeletes();
 
             if (deletionSyncError) {
               console.log(
@@ -327,16 +285,11 @@ export function AttendanceProvider({
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [user?.id, authLoading]);
 
   /*
    * Mark attendance locally first.
-   *
-   * Then synchronize the change
-   * with Supabase.
-   *
-   * If Supabase fails, the change is
-   * added to the offline queue.
+   * Then synchronize the change with Supabase.
    */
   const markAttendance = async (
     date: string,
@@ -370,51 +323,37 @@ export function AttendanceProvider({
        * Create subject if it doesn't exist.
        */
       if (
-        !updatedAttendance[date][
-          subjectName
-        ]
+        !updatedAttendance[date][subjectName]
       ) {
-        updatedAttendance[date][
-          subjectName
-        ] = {};
+        updatedAttendance[date][subjectName] = {};
       }
 
       const currentStatus =
-        updatedAttendance[date][
-          subjectName
-        ][type];
+        updatedAttendance[date][subjectName][type];
 
       /*
        * Tapping the same status again
        * removes the attendance record.
        */
       if (currentStatus === status) {
-        delete updatedAttendance[date][
-          subjectName
-        ][type];
+        delete updatedAttendance[date][subjectName][type];
 
         /*
          * Remove empty subject.
          */
         if (
           Object.keys(
-            updatedAttendance[date][
-              subjectName
-            ]
+            updatedAttendance[date][subjectName]
           ).length === 0
         ) {
-          delete updatedAttendance[date][
-            subjectName
-          ];
+          delete updatedAttendance[date][subjectName];
         }
 
         /*
          * Remove empty date.
          */
         if (
-          Object.keys(
-            updatedAttendance[date]
-          ).length === 0
+          Object.keys(updatedAttendance[date]).length === 0
         ) {
           delete updatedAttendance[date];
         }
@@ -422,33 +361,24 @@ export function AttendanceProvider({
         /*
          * Update local state first.
          */
-        setAttendance(
-          updatedAttendance
-        );
+        setAttendance(updatedAttendance);
 
         /*
          * Save to this user's local cache.
          */
         await AsyncStorage.setItem(
           storageKey,
-          JSON.stringify(
-            updatedAttendance
-          )
+          JSON.stringify(updatedAttendance)
         );
 
         /*
          * Remove the record from Supabase.
-         *
-         * If this fails because the device
-         * is offline, add the deletion
-         * to the offline delete queue.
          */
-        const { error } =
-          await deleteAttendance(
-            date,
-            subjectName,
-            type
-          );
+        const { error } = await deleteAttendance(
+          date,
+          subjectName,
+          type
+        );
 
         if (error) {
           console.log(
@@ -473,44 +403,33 @@ export function AttendanceProvider({
       /*
        * Add or update local attendance.
        */
-      updatedAttendance[date][
-        subjectName
-      ][type] = status;
+      updatedAttendance[date][subjectName][type] =
+        status;
 
       /*
        * Save locally first.
-       *
-       * This allows attendance marking
-       * to continue even without internet.
        */
-      setAttendance(
-        updatedAttendance
-      );
+      setAttendance(updatedAttendance);
 
       await AsyncStorage.setItem(
         storageKey,
-        JSON.stringify(
-          updatedAttendance
-        )
+        JSON.stringify(updatedAttendance)
       );
 
       /*
        * Try to synchronize with Supabase.
        */
-      const { error } =
-        await saveAttendance(
-          date,
-          subjectName,
-          type,
-          status
-        );
+      const { error } = await saveAttendance(
+        date,
+        subjectName,
+        type,
+        status
+      );
 
       if (error) {
         /*
-         * Supabase failed.
-         *
-         * Keep the attendance locally
-         * and add it to the offline queue.
+         * Keep attendance locally and
+         * add it to the offline queue.
          */
         console.log(
           "⚠️ Cloud attendance sync failed:",
@@ -538,9 +457,6 @@ export function AttendanceProvider({
 
   /*
    * Reset ALL attendance.
-   *
-   * Local data is cleared first,
-   * then cloud data is cleared.
    */
   const resetAttendance = async () => {
     if (!user) {
@@ -554,17 +470,14 @@ export function AttendanceProvider({
       /*
        * Clear this user's local attendance.
        */
-      await AsyncStorage.removeItem(
-        storageKey
-      );
+      await AsyncStorage.removeItem(storageKey);
 
       setAttendance({});
 
       /*
        * Clear this user's cloud attendance.
        */
-      const { error } =
-        await deleteAllAttendance();
+      const { error } = await deleteAllAttendance();
 
       if (error) {
         console.log(
@@ -603,59 +516,45 @@ export function AttendanceProvider({
         };
 
         /*
-         * Remove subject from every
-         * local date.
+         * Remove subject from every local date.
          */
-        Object.keys(
-          updatedAttendance
-        ).forEach((date) => {
-          if (
-            updatedAttendance[date]?.[
-              subjectName
-            ]
-          ) {
-            delete updatedAttendance[
-              date
-            ][subjectName];
-          }
+        Object.keys(updatedAttendance).forEach(
+          (date) => {
+            if (
+              updatedAttendance[date]?.[subjectName]
+            ) {
+              delete updatedAttendance[date][subjectName];
+            }
 
-          /*
-           * Remove empty dates.
-           */
-          if (
-            updatedAttendance[date] &&
-            Object.keys(
-              updatedAttendance[date]
-            ).length === 0
-          ) {
-            delete updatedAttendance[
-              date
-            ];
+            /*
+             * Remove empty dates.
+             */
+            if (
+              updatedAttendance[date] &&
+              Object.keys(updatedAttendance[date]).length === 0
+            ) {
+              delete updatedAttendance[date];
+            }
           }
-        });
+        );
 
         /*
          * Save updated local data.
          */
         await AsyncStorage.setItem(
           storageKey,
-          JSON.stringify(
-            updatedAttendance
-          )
+          JSON.stringify(updatedAttendance)
         );
 
-        setAttendance(
-          updatedAttendance
-        );
+        setAttendance(updatedAttendance);
 
         /*
          * Remove the same attendance
          * from Supabase.
          */
-        const { error } =
-          await deleteSubjectAttendance(
-            subjectName
-          );
+        const { error } = await deleteSubjectAttendance(
+          subjectName
+        );
 
         if (error) {
           console.log(
@@ -690,8 +589,7 @@ export function AttendanceProvider({
 }
 
 export function useAttendance() {
-  const context =
-    useContext(AttendanceContext);
+  const context = useContext(AttendanceContext);
 
   if (!context) {
     throw new Error(

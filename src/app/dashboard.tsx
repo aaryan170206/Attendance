@@ -1,24 +1,7 @@
-import { useState } from "react";
-
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-
-import Svg, {
-  Circle,
-  Line,
-  Polyline,
-  Text as SvgText,
-} from "react-native-svg";
-
+import { Layout, Spacing } from "@/constants/spacing";
 import { useAttendance } from "@/context/AttendanceContext";
 import { useSubjects } from "@/context/SubjectContext";
 import { useTheme } from "@/context/ThemeContext";
-
 import {
   calculateAttendance,
   calculateAttendanceTrend,
@@ -27,15 +10,28 @@ import {
   calculateOverallLabAttendance,
   calculateOverallTheoryAttendance,
 } from "@/utils/attendanceCalculator";
+import { useState } from "react";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, {
+  Circle,
+  Line,
+  Text as SvgText,
+} from "react-native-svg";
 
 export default function DashboardScreen() {
   const { attendance } = useAttendance();
   const { subjects } = useSubjects();
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
 
-  const [expandedSubject, setExpandedSubject] = useState<string | null>(
-    null
-  );
+  const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
 
   const overallStats = calculateOverallAttendance(attendance);
   const theoryStats = calculateOverallTheoryAttendance(attendance);
@@ -43,16 +39,13 @@ export default function DashboardScreen() {
   const clubClasses = calculateClubClasses(attendance);
   const trend = calculateAttendanceTrend(attendance);
 
+  // Attendance colour scale used throughout the dashboard.
   const getAttendanceColor = (percentage: number) => {
-    if (percentage > 75) {
-      return colors.present;
-    }
-
-    if (percentage >= 50) {
-      return colors.leftEarly;
-    }
-
-    return colors.absent;
+    if (percentage > 90) return "#06B6D4"; // Cyan
+    if (percentage >= 75) return "#22C55E"; // Green
+    if (percentage >= 65) return "#F97316"; // Orange
+    if (percentage >= 50) return "#EAB308"; // Yellow
+    return "#EF4444"; // Red
   };
 
   /*
@@ -61,10 +54,7 @@ export default function DashboardScreen() {
    * -------------------------
    */
 
-  const getClassesNeededFor75 = (
-    attended: number,
-    total: number
-  ) => {
+  const getClassesNeededFor75 = (attended: number, total: number) => {
     if (total === 0) {
       return 0;
     }
@@ -86,10 +76,7 @@ export default function DashboardScreen() {
     return classesNeeded;
   };
 
-  const getClassesCanMiss = (
-    attended: number,
-    total: number
-  ) => {
+  const getClassesCanMiss = (attended: number, total: number) => {
     if (total === 0) {
       return 0;
     }
@@ -115,12 +102,10 @@ export default function DashboardScreen() {
 
   const chartWidth = 320;
   const chartHeight = 220;
-
   const graphLeft = 40;
   const graphRight = 300;
   const graphTop = 20;
   const graphBottom = 200;
-
   const graphWidth = graphRight - graphLeft;
   const graphHeight = graphBottom - graphTop;
 
@@ -146,12 +131,6 @@ export default function DashboardScreen() {
       (safePercentage / 100) * graphHeight
     );
   };
-
-  const graphPoints = trend
-    .map((item, index) => {
-      return `${getX(index)},${getY(item.percentage)}`;
-    })
-    .join(" ");
 
   /*
    * -------------------------
@@ -203,7 +182,15 @@ export default function DashboardScreen() {
         styles.container,
         { backgroundColor: colors.background },
       ]}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[
+        styles.content,
+        {
+          paddingTop: insets.top + Layout.screenVertical,
+          paddingLeft: insets.left + Layout.screenHorizontal,
+          paddingRight: insets.right + Layout.screenHorizontal,
+          paddingBottom: Spacing.xxxl,
+        },
+      ]}
       showsVerticalScrollIndicator={false}
     >
       {/* HEADER */}
@@ -577,14 +564,26 @@ export default function DashboardScreen() {
 
               {/* TREND LINE */}
 
-              <Polyline
-                points={graphPoints}
-                fill="none"
-                stroke={colors.primary}
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              {trend.slice(1).map((item, index) => {
+                const previous = trend[index];
+                const segmentPercentage =
+                  (previous.percentage + item.percentage) / 2;
+
+                return (
+                  <Line
+                    key={`${previous.date}-${item.date}`}
+                    x1={getX(index)}
+                    y1={getY(previous.percentage)}
+                    x2={getX(index + 1)}
+                    y2={getY(item.percentage)}
+                    stroke={getAttendanceColor(
+                      segmentPercentage
+                    )}
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+                );
+              })}
 
               {/* DATA POINTS */}
 
@@ -598,7 +597,9 @@ export default function DashboardScreen() {
                     cx={x}
                     cy={y}
                     r="4"
-                    fill={colors.primary}
+                    fill={getAttendanceColor(
+                      item.percentage
+                    )}
                   />
                 );
               })}
@@ -721,8 +722,7 @@ export default function DashboardScreen() {
               style={[
                 styles.progressBackground,
                 {
-                  backgroundColor:
-                    colors.cardSecondary,
+                  backgroundColor: colors.cardSecondary,
                 },
               ]}
             >
@@ -734,10 +734,9 @@ export default function DashboardScreen() {
                       subject.percentage,
                       100
                     )}%`,
-                    backgroundColor:
-                      getAttendanceColor(
-                        subject.percentage
-                      ),
+                    backgroundColor: getAttendanceColor(
+                      subject.percentage
+                    ),
                   },
                 ]}
               />
@@ -777,8 +776,7 @@ export default function DashboardScreen() {
                   style={[
                     styles.guidanceBox,
                     {
-                      backgroundColor:
-                        colors.cardSecondary,
+                      backgroundColor: colors.cardSecondary,
                     },
                   ]}
                 >
@@ -797,8 +795,7 @@ export default function DashboardScreen() {
                     style={[
                       styles.guidanceText,
                       {
-                        color:
-                          colors.textSecondary,
+                        color: colors.textSecondary,
                       },
                     ]}
                   >
@@ -826,8 +823,7 @@ export default function DashboardScreen() {
                   style={[
                     styles.guidanceBox,
                     {
-                      backgroundColor:
-                        colors.cardSecondary,
+                      backgroundColor: colors.cardSecondary,
                     },
                   ]}
                 >
@@ -846,8 +842,7 @@ export default function DashboardScreen() {
                     style={[
                       styles.guidanceText,
                       {
-                        color:
-                          colors.textSecondary,
+                        color: colors.textSecondary,
                       },
                     ]}
                   >
@@ -897,8 +892,7 @@ export default function DashboardScreen() {
                       style={[
                         styles.detailText,
                         {
-                          color:
-                            colors.textSecondary,
+                          color: colors.textSecondary,
                         },
                       ]}
                     >
@@ -913,18 +907,13 @@ export default function DashboardScreen() {
                     style={[
                       styles.detailPercentage,
                       {
-                        color:
-                          getAttendanceColor(
-                            subject.theory
-                              .percentage
-                          ),
+                        color: getAttendanceColor(
+                          subject.theory.percentage
+                        ),
                       },
                     ]}
                   >
-                    {subject.theory.percentage.toFixed(
-                      1
-                    )}
-                    %
+                    {subject.theory.percentage.toFixed(1)}%
                   </Text>
                 </View>
 
@@ -946,20 +935,13 @@ export default function DashboardScreen() {
                         style={[
                           styles.detailText,
                           {
-                            color:
-                              colors.textSecondary,
+                            color: colors.textSecondary,
                           },
                         ]}
                       >
-                        {
-                          subject.lab
-                            .attendedClasses
-                        }{" "}
+                        {subject.lab.attendedClasses}{" "}
                         /{" "}
-                        {
-                          subject.lab
-                            .totalClasses
-                        }{" "}
+                        {subject.lab.totalClasses}{" "}
                         attended
                       </Text>
                     </View>
@@ -968,18 +950,13 @@ export default function DashboardScreen() {
                       style={[
                         styles.detailPercentage,
                         {
-                          color:
-                            getAttendanceColor(
-                              subject.lab
-                                .percentage
-                            ),
+                          color: getAttendanceColor(
+                            subject.lab.percentage
+                          ),
                         },
                       ]}
                     >
-                      {subject.lab.percentage.toFixed(
-                        1
-                      )}
-                      %
+                      {subject.lab.percentage.toFixed(1)}%
                     </Text>
                   </View>
                 )}
@@ -1002,8 +979,7 @@ export default function DashboardScreen() {
                         style={[
                           styles.detailText,
                           {
-                            color:
-                              colors.textSecondary,
+                            color: colors.textSecondary,
                           },
                         ]}
                       >
@@ -1017,10 +993,7 @@ export default function DashboardScreen() {
                         { color: colors.club },
                       ]}
                     >
-                      {
-                        subject.theory
-                          .clubClasses
-                      }
+                      {subject.theory.clubClasses}
                     </Text>
                   </View>
                 )}
@@ -1061,206 +1034,170 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-
   content: {
     padding: 20,
     paddingBottom: 40,
   },
-
   title: {
     fontSize: 30,
     fontWeight: "700",
     marginTop: 10,
   },
-
   subtitle: {
     fontSize: 15,
     marginTop: 4,
     marginBottom: 20,
   },
-
   overallCard: {
     borderRadius: 18,
     padding: 20,
     borderWidth: 1,
     marginBottom: 12,
   },
-
   card: {
     borderRadius: 18,
     padding: 18,
     borderWidth: 1,
     marginBottom: 16,
   },
-
   cardLabel: {
     fontSize: 14,
     fontWeight: "500",
   },
-
   overallPercentage: {
     fontSize: 42,
     fontWeight: "700",
     marginTop: 5,
   },
-
   cardSubText: {
     fontSize: 13,
     marginTop: 2,
   },
-
   statsRow: {
     flexDirection: "row",
     gap: 10,
     marginBottom: 16,
   },
-
   smallCard: {
     flex: 1,
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
   },
-
   smallCardTitle: {
     fontSize: 12,
     fontWeight: "500",
   },
-
   smallPercentage: {
     fontSize: 22,
     fontWeight: "700",
     marginTop: 4,
   },
-
   smallCardText: {
     fontSize: 11,
     marginTop: 2,
   },
-
   progressBackground: {
     height: 8,
     borderRadius: 10,
     overflow: "hidden",
     marginTop: 14,
   },
-
   progressFill: {
     height: "100%",
     borderRadius: 10,
   },
-
   sectionTitle: {
     fontSize: 21,
     fontWeight: "700",
     marginBottom: 4,
   },
-
   sectionSubtitle: {
     fontSize: 13,
     marginBottom: 10,
   },
-
   chartWrapper: {
     width: "100%",
     marginTop: 5,
     alignItems: "center",
   },
-
   emptyTrend: {
     paddingVertical: 25,
   },
-
   emptyText: {
     fontSize: 14,
     textAlign: "center",
     lineHeight: 20,
   },
-
   subjectCard: {
     borderRadius: 18,
     padding: 18,
     borderWidth: 1,
     marginTop: 12,
   },
-
   subjectHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-
   subjectTitleContainer: {
     flex: 1,
     paddingRight: 10,
   },
-
   subjectName: {
     fontSize: 17,
     fontWeight: "600",
   },
-
   subjectClasses: {
     fontSize: 12,
     marginTop: 4,
   },
-
   subjectPercentage: {
     fontSize: 20,
     fontWeight: "700",
   },
-
   warning: {
     fontSize: 12,
     fontWeight: "600",
     marginTop: 10,
   },
-
   guidanceBox: {
     borderRadius: 12,
     padding: 12,
     marginTop: 12,
   },
-
   guidanceTitle: {
     fontSize: 13,
     fontWeight: "600",
   },
-
   guidanceText: {
     fontSize: 12,
     marginTop: 4,
     lineHeight: 18,
   },
-
   detailsContainer: {
     marginTop: 16,
     paddingTop: 14,
     borderTopWidth: 1,
   },
-
   detailRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingVertical: 9,
   },
-
   detailTitle: {
     fontSize: 14,
     fontWeight: "600",
   },
-
   detailText: {
     fontSize: 12,
     marginTop: 3,
   },
-
   detailPercentage: {
     fontSize: 16,
     fontWeight: "700",
   },
-
   emptyCard: {
     borderRadius: 18,
     padding: 25,

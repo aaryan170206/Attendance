@@ -1,4 +1,3 @@
-
 export const Spacing = {
   xs: 4,
   sm: 8,
@@ -13,7 +12,7 @@ export const Layout = {
   screenHorizontal: 20,
   screenVertical: 20,
 
-  cardPadding: 16,
+  cardPadding: 18,
   cardRadius: 16,
 
   inputHeight: 52,
@@ -23,4 +22,7 @@ export const Layout = {
   buttonRadius: 12,
 
   headerHeight: 56,
+
+  sectionGap: 20,
+  bottomPadding: 40,
 };

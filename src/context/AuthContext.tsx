@@ -20,10 +20,11 @@ type AuthContextType = {
   roleError: string | null;
 
   signUp: (
-    email: string,
-    password: string,
-    fullName: string
-  ) => Promise<{ error: any }>;
+  email: string,
+  password: string,
+  fullName: string,
+  rollNumber: string
+) => Promise<{ error: any }>;
 
   signIn: (
     email: string,
@@ -158,24 +159,26 @@ export function AuthProvider({
   }, [user?.id]);
 
   // Register new users as students by default
-  const signUp = async (
-    email: string,
-    password: string,
-    fullName: string
-  ) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-          role: "student",
-        },
+const signUp = async (
+  email: string,
+  password: string,
+  fullName: string,
+  rollNumber: string
+) => {
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        full_name: fullName,
+        role: "student",
+        roll_number: rollNumber.trim(),
       },
-    });
+    },
+  });
 
-    return { error };
-  };
+  return { error };
+};
 
   // Login
   const signIn = async (

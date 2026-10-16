@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
 
   content: {
     paddingHorizontal: Layout.screenHorizontal,
-    paddingTop: Layout.screenVertical,
+    paddingTop: Layout.screenVertical + 48,
     paddingBottom: Spacing.xxxl,
   },
 
