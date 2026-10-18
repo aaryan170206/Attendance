@@ -32,6 +32,13 @@ type CreateAssignmentInput = {
   dueDate?: string | null;
 };
 
+type UpdateAssignmentInput = {
+  assignmentId: string;
+  title: string;
+  description?: string;
+  dueDate?: string | null;
+};
+
 type SubmissionStatus = "pending" | "submitted";
 
 type AssignmentSubmission = {
@@ -84,11 +91,11 @@ export async function getMyTeachingAssignments() {
     return { data: null, error: userError };
   }
 
-  // Step 1: Fetch the teacher's assigned class-subject combinations.
-  const { data: assignments, error: assignmentError } = await supabase
-    .from("teaching_assignments")
-    .select("id, class_id, subject_id")
-    .eq("teacher_id", user.id);
+  const { data: assignments, error: assignmentError } =
+    await supabase
+      .from("teaching_assignments")
+      .select("id, class_id, subject_id")
+      .eq("teacher_id", user.id);
 
   if (assignmentError) {
     return { data: null, error: assignmentError };
@@ -98,7 +105,6 @@ export async function getMyTeachingAssignments() {
     return { data: [], error: null };
   }
 
-  // Step 2: Get unique class and subject IDs.
   const classIds = [
     ...new Set(assignments.map((item) => item.class_id)),
   ];
@@ -107,7 +113,6 @@ export async function getMyTeachingAssignments() {
     ...new Set(assignments.map((item) => item.subject_id)),
   ];
 
-  // Step 3: Fetch class information separately.
   const { data: classes, error: classError } = await supabase
     .from("classes")
     .select("id, semester, department_id")
@@ -117,7 +122,6 @@ export async function getMyTeachingAssignments() {
     return { data: null, error: classError };
   }
 
-  // Step 4: Fetch subject information separately.
   const { data: subjects, error: subjectError } = await supabase
     .from("subjects")
     .select("id, name")
@@ -127,7 +131,6 @@ export async function getMyTeachingAssignments() {
     return { data: null, error: subjectError };
   }
 
-  // Step 5: Combine assignment, class and subject information.
   const result: TeachingAssignment[] = assignments.map((assignment) => {
     const classInfo = classes?.find(
       (item) => item.id === assignment.class_id
@@ -160,10 +163,11 @@ export async function getMyTotalEnrolments() {
     return { count: null, error: userError };
   }
 
-  const { data: assignments, error: assignmentError } = await supabase
-    .from("teaching_assignments")
-    .select("class_id")
-    .eq("teacher_id", user.id);
+  const { data: assignments, error: assignmentError } =
+    await supabase
+      .from("teaching_assignments")
+      .select("class_id")
+      .eq("teacher_id", user.id);
 
   if (assignmentError) {
     return { count: null, error: assignmentError };
@@ -196,10 +200,11 @@ export async function getMyClassesConducted() {
     return { count: null, error: userError };
   }
 
-  const { data: assignments, error: assignmentError } = await supabase
-    .from("teaching_assignments")
-    .select("class_id, subject_id")
-    .eq("teacher_id", user.id);
+  const { data: assignments, error: assignmentError } =
+    await supabase
+      .from("teaching_assignments")
+      .select("class_id, subject_id")
+      .eq("teacher_id", user.id);
 
   if (assignmentError) {
     return { count: null, error: assignmentError };
@@ -212,10 +217,11 @@ export async function getMyClassesConducted() {
   const sessions = new Set<string>();
 
   for (const assignment of assignments) {
-    const { data: enrollments, error: enrollmentError } = await supabase
-      .from("enrollments")
-      .select("student_id")
-      .eq("class_id", assignment.class_id);
+    const { data: enrollments, error: enrollmentError } =
+      await supabase
+        .from("enrollments")
+        .select("student_id")
+        .eq("class_id", assignment.class_id);
 
     if (enrollmentError) {
       return { count: null, error: enrollmentError };
@@ -266,20 +272,20 @@ export async function getMyAssignments() {
     return { data: null, error: userError };
   }
 
-  // Step 1: Fetch assignments visible under RLS.
-  const { data: assignments, error: assignmentError } = await supabase
-    .from("assignments")
-    .select(`
-      id,
-      teacher_id,
-      class_id,
-      subject_id,
-      title,
-      description,
-      due_date,
-      created_at
-    `)
-    .order("created_at", { ascending: false });
+  const { data: assignments, error: assignmentError } =
+    await supabase
+      .from("assignments")
+      .select(`
+        id,
+        teacher_id,
+        class_id,
+        subject_id,
+        title,
+        description,
+        due_date,
+        created_at
+      `)
+      .order("created_at", { ascending: false });
 
   if (assignmentError) {
     return { data: null, error: assignmentError };
@@ -289,7 +295,6 @@ export async function getMyAssignments() {
     return { data: [], error: null };
   }
 
-  // Step 2: Get unique IDs.
   const classIds = [
     ...new Set(assignments.map((item) => item.class_id)),
   ];
@@ -298,7 +303,6 @@ export async function getMyAssignments() {
     ...new Set(assignments.map((item) => item.subject_id)),
   ];
 
-  // Step 3: Fetch classes.
   const { data: classes, error: classError } = await supabase
     .from("classes")
     .select("id, semester, department_id")
@@ -308,7 +312,6 @@ export async function getMyAssignments() {
     return { data: null, error: classError };
   }
 
-  // Step 4: Fetch subjects.
   const { data: subjects, error: subjectError } = await supabase
     .from("subjects")
     .select("id, name")
@@ -318,7 +321,6 @@ export async function getMyAssignments() {
     return { data: null, error: subjectError };
   }
 
-  // Step 5: Combine the results.
   const result = assignments.map((assignment) => {
     const classInfo = classes?.find(
       (item) => item.id === assignment.class_id
@@ -366,6 +368,66 @@ export async function createAssignment({
       due_date: dueDate || null,
     })
     .select()
+    .single();
+
+  return { data, error };
+}
+
+// --------------------------------------------------
+// UPDATE OWN ASSIGNMENT
+// --------------------------------------------------
+
+export async function updateAssignment({
+  assignmentId,
+  title,
+  description,
+  dueDate,
+}: UpdateAssignmentInput) {
+  const { user, error: userError } = await getCurrentUser();
+
+  if (userError || !user) {
+    return { data: null, error: userError };
+  }
+
+  if (!title.trim()) {
+    return {
+      data: null,
+      error: new Error("Assignment title cannot be empty."),
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("assignments")
+    .update({
+      title: title.trim(),
+      description: description?.trim() || null,
+      due_date: dueDate || null,
+    })
+    .eq("id", assignmentId)
+    .eq("teacher_id", user.id)
+    .select()
+    .single();
+
+  return { data, error };
+}
+
+// --------------------------------------------------
+// DELETE OWN ASSIGNMENT
+// --------------------------------------------------
+
+export async function deleteAssignment(assignmentId: string) {
+  const { user, error: userError } = await getCurrentUser();
+
+  if (userError || !user) {
+    return { data: null, error: userError };
+  }
+
+  const { data, error } = await supabase
+    .from("assignments")
+    .delete()
+    .eq("id", assignmentId)
+    .eq("teacher_id", user.id)
+    .select("id")
     .single();
 
   return { data, error };

@@ -15,11 +15,14 @@ import {
   getMyTotalEnrolments,
 } from "@/lib/teacher";
 
+import { getMyTeacherClasses } from "@/services/teacherClasses";
+
 import { useTheme } from "@/context/ThemeContext";
 
 // Dashboard statistics type
 type DashboardStats = {
   assignedSubjects: number;
+  assignedClasses: number;
   totalEnrolments: number;
   classesConducted: number;
 };
@@ -29,6 +32,7 @@ export default function TeacherDashboard() {
 
   const [stats, setStats] = useState<DashboardStats>({
     assignedSubjects: 0,
+    assignedClasses: 0,
     totalEnrolments: 0,
     classesConducted: 0,
   });
@@ -51,10 +55,12 @@ export default function TeacherDashboard() {
         assignmentsResult,
         enrolmentsResult,
         classesResult,
+        assignedClassesResult,
       ] = await Promise.all([
         getMyTeachingAssignments(),
         getMyTotalEnrolments(),
         getMyClassesConducted(),
+        getMyTeacherClasses(),
       ]);
 
       // Check for errors
@@ -70,9 +76,14 @@ export default function TeacherDashboard() {
         throw classesResult.error;
       }
 
+      if (assignedClassesResult.error) {
+        throw assignedClassesResult.error;
+      }
+
       // Update dashboard statistics
       setStats({
         assignedSubjects: assignmentsResult.data?.length ?? 0,
+        assignedClasses: assignedClassesResult.data?.length ?? 0,
         totalEnrolments: enrolmentsResult.count ?? 0,
         classesConducted: classesResult.count ?? 0,
       });
@@ -141,6 +152,17 @@ export default function TeacherDashboard() {
           </Text>
         </View>
 
+        {/* Assigned Classes */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>
+            Assigned Classes
+          </Text>
+
+          <Text style={styles.cardValue}>
+            {stats.assignedClasses}
+          </Text>
+        </View>
+
         {/* Total Enrolments */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>
@@ -200,16 +222,13 @@ const createStyles = (
       marginBottom: 6,
     },
 
-
     statsContainer: {
-      flexDirection: "row",
-      flexWrap: "wrap",
+      flexDirection: "column",
       gap: 12,
     },
 
     card: {
-      flex: 1,
-      minWidth: "45%",
+      width: "100%",
       backgroundColor: colors.card,
       borderWidth: 1,
       borderColor: colors.border,

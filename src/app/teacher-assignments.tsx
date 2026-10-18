@@ -20,12 +20,15 @@ import DateTimePicker, {
 } from "@react-native-community/datetimepicker";
 
 import { useTheme } from "@/context/ThemeContext";
+import { supabase } from "@/lib/supabase";
 
 import {
   createAssignment,
+  deleteAssignment,
   getAssignmentSubmissions,
   getMyAssignments,
   getMyTeachingAssignments,
+  updateAssignment,
   updateSubmissionStatus,
 } from "@/lib/teacher";
 
@@ -121,6 +124,8 @@ export default function TeacherAssignments() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
   const [teachingAssignments, setTeachingAssignments] = useState<
     TeachingAssignment[]
   >([]);
@@ -133,6 +138,7 @@ export default function TeacherAssignments() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
 
+  // Create modal
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const [title, setTitle] = useState("");
@@ -141,6 +147,17 @@ export default function TeacherAssignments() {
 
   const [dueDate, setDueDate] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Edit modal
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingAssignment, setEditingAssignment] =
+    useState<Assignment | null>(null);
+
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editDueDate, setEditDueDate] = useState<Date | null>(null);
+  const [showEditDatePicker, setShowEditDatePicker] = useState(false);
+
   const [saving, setSaving] = useState(false);
 
   // ------------------------------------------------
@@ -150,6 +167,21 @@ export default function TeacherAssignments() {
   const loadData = useCallback(async () => {
     try {
       setRefreshing(true);
+
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) {
+        throw authError;
+      }
+
+      if (!user) {
+        throw new Error("User is not logged in.");
+      }
+
+      setCurrentUserId(user.id);
 
       const [teachingResult, assignmentResult] = await Promise.all([
         getMyTeachingAssignments(),
@@ -163,9 +195,6 @@ export default function TeacherAssignments() {
       if (assignmentResult.error) {
         throw assignmentResult.error;
       }
-
-      // Normalize Supabase relationships into single objects.
-      // Supabase returns these relationships as arrays.
 
       const normalizedTeaching: TeachingAssignment[] = (
         teachingResult.data ?? []
@@ -274,7 +303,7 @@ export default function TeacherAssignments() {
   };
 
   // ------------------------------------------------
-  // CREATE ASSIGNMENT
+  // RESET CREATE FORM
   // ------------------------------------------------
 
   const resetForm = () => {
@@ -284,6 +313,10 @@ export default function TeacherAssignments() {
     setDueDate(null);
     setShowDatePicker(false);
   };
+
+  // ------------------------------------------------
+  // CREATE ASSIGNMENT
+  // ------------------------------------------------
 
   const handleCreateAssignment = async () => {
     if (!title.trim()) {
@@ -346,6 +379,136 @@ export default function TeacherAssignments() {
   };
 
   // ------------------------------------------------
+  // OPEN EDIT FORM
+  // ------------------------------------------------
+
+  const openEditModal = (assignment: Assignment) => {
+    setEditingAssignment(assignment);
+
+    setEditTitle(assignment.title);
+    setEditDescription(assignment.description ?? "");
+
+    setEditDueDate(
+      assignment.due_date ? new Date(assignment.due_date) : null
+    );
+
+    setShowEditDatePicker(false);
+    setShowEditModal(true);
+  };
+
+  const resetEditForm = () => {
+    setEditingAssignment(null);
+    setEditTitle("");
+    setEditDescription("");
+    setEditDueDate(null);
+    setShowEditDatePicker(false);
+  };
+
+  // ------------------------------------------------
+  // SAVE EDITED ASSIGNMENT
+  // ------------------------------------------------
+
+  const handleUpdateAssignment = async () => {
+    if (!editingAssignment) {
+      return;
+    }
+
+    if (!editTitle.trim()) {
+      Alert.alert("Missing title", "Please enter an assignment title.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const result = await updateAssignment({
+        assignmentId: editingAssignment.id,
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+        dueDate: editDueDate ? editDueDate.toISOString() : null,
+      });
+
+      if (result.error) {
+        throw result.error;
+      }
+
+      setShowEditModal(false);
+      resetEditForm();
+
+      await loadData();
+
+      Alert.alert(
+        "Assignment updated",
+        "The assignment has been updated successfully."
+      );
+    } catch (error) {
+      console.error("Assignment update error:", error);
+
+      Alert.alert(
+        "Unable to update assignment",
+        error instanceof Error ? error.message : "Please try again."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ------------------------------------------------
+  // DELETE ASSIGNMENT
+  // ------------------------------------------------
+
+  const handleDeleteAssignment = (assignment: Assignment) => {
+    Alert.alert(
+      "Delete assignment",
+      `Are you sure you want to permanently delete "${assignment.title}"?\n\nAll associated student submission records will also be deleted. This action cannot be undone.`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setSaving(true);
+
+              const result = await deleteAssignment(assignment.id);
+
+              if (result.error) {
+                throw result.error;
+              }
+
+              if (selectedAssignment?.id === assignment.id) {
+                setSelectedAssignment(null);
+                setSubmissions([]);
+              }
+
+              await loadData();
+
+              Alert.alert(
+                "Assignment deleted",
+                "The assignment and its associated submission records have been deleted."
+              );
+            } catch (error) {
+              console.error("Assignment deletion error:", error);
+
+              Alert.alert(
+                "Unable to delete assignment",
+                error instanceof Error
+                  ? error.message
+                  : "Please try again."
+              );
+            } finally {
+              setSaving(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // ------------------------------------------------
   // UPDATE SUBMISSION STATUS
   // ------------------------------------------------
 
@@ -395,7 +558,7 @@ export default function TeacherAssignments() {
   };
 
   // ------------------------------------------------
-  // DATE PICKER
+  // CREATE DATE PICKER
   // ------------------------------------------------
 
   const handleDateChange = (
@@ -416,6 +579,27 @@ export default function TeacherAssignments() {
   };
 
   // ------------------------------------------------
+  // EDIT DATE PICKER
+  // ------------------------------------------------
+
+  const handleEditDateChange = (
+    event: DateTimePickerEvent,
+    selectedDate?: Date
+  ) => {
+    if (Platform.OS === "android") {
+      setShowEditDatePicker(false);
+    }
+
+    if (event.type === "dismissed") {
+      return;
+    }
+
+    if (selectedDate) {
+      setEditDueDate(selectedDate);
+    }
+  };
+
+  // ------------------------------------------------
   // THEME STYLES
   // ------------------------------------------------
 
@@ -425,9 +609,9 @@ export default function TeacherAssignments() {
       backgroundColor: colors.background,
     },
     content: {
-    paddingHorizontal: 20,
-    paddingTop: 68,
-    paddingBottom: 35,
+      paddingHorizontal: 20,
+      paddingTop: 68,
+      paddingBottom: 35,
     },
     heading: {
       fontSize: 30,
@@ -618,6 +802,30 @@ export default function TeacherAssignments() {
       fontWeight: "700",
       fontSize: 15,
     },
+    actionRow: {
+      flexDirection: "row",
+      gap: 10,
+      marginTop: 18,
+    },
+    editButton: {
+      flex: 1,
+      backgroundColor: colors.primary,
+      paddingVertical: 11,
+      borderRadius: 10,
+      alignItems: "center",
+    },
+    deleteButton: {
+      flex: 1,
+      backgroundColor: "#DC2626",
+      paddingVertical: 11,
+      borderRadius: 10,
+      alignItems: "center",
+    },
+    actionButtonText: {
+      color: "#FFFFFF",
+      fontWeight: "700",
+      fontSize: 13,
+    },
   });
 
   // ------------------------------------------------
@@ -648,6 +856,8 @@ export default function TeacherAssignments() {
     const classInfo = selectedAssignment.classes;
     const subjectInfo = selectedAssignment.subjects;
 
+    const isOwner = selectedAssignment.teacher_id === currentUserId;
+
     const submittedCount = submissions.filter(
       (item) => item.status === "submitted"
     ).length;
@@ -676,7 +886,25 @@ export default function TeacherAssignments() {
             {classInfo?.semester ?? "—"}
           </Text>
 
-          <View style={styles.card}>
+          {isOwner ? (
+            <View style={styles.actionRow}>
+              <Pressable
+                style={styles.editButton}
+                onPress={() => openEditModal(selectedAssignment)}
+              >
+                <Text style={styles.actionButtonText}>Edit Assignment</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.deleteButton}
+                onPress={() => handleDeleteAssignment(selectedAssignment)}
+              >
+                <Text style={styles.actionButtonText}>Delete Assignment</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          <View style={[styles.card, { marginTop: 20 }]}>
             <Text style={styles.cardTitle}>Submission Overview</Text>
 
             <View style={styles.detailRow}>
@@ -770,6 +998,129 @@ export default function TeacherAssignments() {
             ))
           )}
         </ScrollView>
+
+        {/* EDIT MODAL ON DETAILS SCREEN */}
+
+        <Modal
+          visible={showEditModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => {
+            setShowEditModal(false);
+            resetEditForm();
+          }}
+        >
+          <View style={styles.modalBackground}>
+            <View style={styles.modalCard}>
+              <ScrollView keyboardShouldPersistTaps="handled">
+                <Text style={styles.modalTitle}>Edit Assignment</Text>
+
+                <Text style={styles.label}>Assignment title *</Text>
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter assignment title"
+                  placeholderTextColor={colors.textSecondary}
+                  value={editTitle}
+                  onChangeText={setEditTitle}
+                />
+
+                <Text style={styles.label}>Description</Text>
+
+                <TextInput
+                  style={[
+                    styles.input,
+                    { minHeight: 95, textAlignVertical: "top" },
+                  ]}
+                  placeholder="Enter assignment instructions"
+                  placeholderTextColor={colors.textSecondary}
+                  value={editDescription}
+                  onChangeText={setEditDescription}
+                  multiline
+                />
+
+                <Text style={styles.label}>Due date (optional)</Text>
+
+                <Pressable
+                  style={styles.option}
+                  onPress={() => setShowEditDatePicker(true)}
+                >
+                  <Text style={styles.optionText}>
+                    {editDueDate
+                      ? editDueDate.toLocaleDateString("en-IN")
+                      : "Choose due date"}
+                  </Text>
+                </Pressable>
+
+                {editDueDate ? (
+                  <Pressable onPress={() => setEditDueDate(null)}>
+                    <Text
+                      style={{
+                        color: colors.primary,
+                        marginTop: 5,
+                        fontWeight: "600",
+                      }}
+                    >
+                      Remove due date
+                    </Text>
+                  </Pressable>
+                ) : null}
+
+                {showEditDatePicker ? (
+                  <DateTimePicker
+                    value={editDueDate ?? new Date()}
+                    mode="date"
+                    display={
+                      Platform.OS === "ios" ? "spinner" : "default"
+                    }
+                    minimumDate={new Date()}
+                    onChange={handleEditDateChange}
+                  />
+                ) : null}
+
+                {Platform.OS === "ios" && showEditDatePicker ? (
+                  <Pressable
+                    style={styles.secondaryButton}
+                    onPress={() => setShowEditDatePicker(false)}
+                  >
+                    <Text style={styles.secondaryButtonText}>Done</Text>
+                  </Pressable>
+                ) : null}
+
+                <Pressable
+                  style={[
+                    styles.primaryButton,
+                    {
+                      alignItems: "center",
+                      marginTop: 22,
+                      opacity: saving ? 0.6 : 1,
+                    },
+                  ]}
+                  disabled={saving}
+                  onPress={handleUpdateAssignment}
+                >
+                  {saving ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>
+                      Save Changes
+                    </Text>
+                  )}
+                </Pressable>
+
+                <Pressable
+                  style={styles.secondaryButton}
+                  onPress={() => {
+                    setShowEditModal(false);
+                    resetEditForm();
+                  }}
+                >
+                  <Text style={styles.secondaryButtonText}>Cancel</Text>
+                </Pressable>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
       </View>
     );
   }
@@ -813,59 +1164,74 @@ export default function TeacherAssignments() {
             const classInfo = assignment.classes;
             const subjectInfo = assignment.subjects;
 
-            const isMine = teachingAssignments.some(
-              (item) =>
-                item.class_id === assignment.class_id &&
-                item.subject_id === assignment.subject_id
-            );
+            // Ownership is based on the actual creator.
+            const isMine = assignment.teacher_id === currentUserId;
 
             return (
-              <Pressable
-                key={assignment.id}
-                style={styles.card}
-                onPress={() => openAssignment(assignment)}
-              >
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                  }}
-                >
-                  <Text style={styles.cardTitle}>{assignment.title}</Text>
+              <View key={assignment.id} style={styles.card}>
+                <Pressable onPress={() => openAssignment(assignment)}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text style={styles.cardTitle}>
+                      {assignment.title}
+                    </Text>
 
-                  {isMine ? (
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText}>Assigned to me</Text>
-                    </View>
+                    {isMine ? (
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeText}>Created by me</Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  <Text style={styles.subject}>
+                    {subjectInfo?.name ?? "Subject unavailable"}
+                  </Text>
+
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Semester</Text>
+                    <Text style={styles.detailValue}>
+                      {classInfo?.semester
+                        ? `Semester ${classInfo.semester}`
+                        : "Not specified"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Due date</Text>
+                    <Text style={styles.detailValue}>
+                      {formatDate(assignment.due_date)}
+                    </Text>
+                  </View>
+
+                  {assignment.description ? (
+                    <Text style={styles.description}>
+                      {assignment.description}
+                    </Text>
                   ) : null}
-                </View>
+                </Pressable>
 
-                <Text style={styles.subject}>
-                  {subjectInfo?.name ?? "Subject unavailable"}
-                </Text>
+                {isMine ? (
+                  <View style={styles.actionRow}>
+                    <Pressable
+                      style={styles.editButton}
+                      onPress={() => openEditModal(assignment)}
+                    >
+                      <Text style={styles.actionButtonText}>Edit</Text>
+                    </Pressable>
 
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Semester</Text>
-                  <Text style={styles.detailValue}>
-                    {classInfo?.semester
-                      ? `Semester ${classInfo.semester}`
-                      : "Not specified"}
-                  </Text>
-                </View>
-
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Due date</Text>
-                  <Text style={styles.detailValue}>
-                    {formatDate(assignment.due_date)}
-                  </Text>
-                </View>
-
-                {assignment.description ? (
-                  <Text style={styles.description}>
-                    {assignment.description}
-                  </Text>
+                    <Pressable
+                      style={styles.deleteButton}
+                      onPress={() => handleDeleteAssignment(assignment)}
+                    >
+                      <Text style={styles.actionButtonText}>Delete</Text>
+                    </Pressable>
+                  </View>
                 ) : null}
-              </Pressable>
+              </View>
             );
           })
         )}
@@ -1030,6 +1396,127 @@ export default function TeacherAssignments() {
                 onPress={() => {
                   setShowCreateModal(false);
                   resetForm();
+                }}
+              >
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* EDIT ASSIGNMENT MODAL */}
+
+      <Modal
+        visible={showEditModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setShowEditModal(false);
+          resetEditForm();
+        }}
+      >
+        <View style={styles.modalBackground}>
+          <View style={styles.modalCard}>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <Text style={styles.modalTitle}>Edit Assignment</Text>
+
+              <Text style={styles.label}>Assignment title *</Text>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Enter assignment title"
+                placeholderTextColor={colors.textSecondary}
+                value={editTitle}
+                onChangeText={setEditTitle}
+              />
+
+              <Text style={styles.label}>Description</Text>
+
+              <TextInput
+                style={[
+                  styles.input,
+                  { minHeight: 95, textAlignVertical: "top" },
+                ]}
+                placeholder="Enter assignment instructions"
+                placeholderTextColor={colors.textSecondary}
+                value={editDescription}
+                onChangeText={setEditDescription}
+                multiline
+              />
+
+              <Text style={styles.label}>Due date (optional)</Text>
+
+              <Pressable
+                style={styles.option}
+                onPress={() => setShowEditDatePicker(true)}
+              >
+                <Text style={styles.optionText}>
+                  {editDueDate
+                    ? editDueDate.toLocaleDateString("en-IN")
+                    : "Choose due date"}
+                </Text>
+              </Pressable>
+
+              {editDueDate ? (
+                <Pressable onPress={() => setEditDueDate(null)}>
+                  <Text
+                    style={{
+                      color: colors.primary,
+                      marginTop: 5,
+                      fontWeight: "600",
+                    }}
+                  >
+                    Remove due date
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              {showEditDatePicker ? (
+                <DateTimePicker
+                  value={editDueDate ?? new Date()}
+                  mode="date"
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  minimumDate={new Date()}
+                  onChange={handleEditDateChange}
+                />
+              ) : null}
+
+              {Platform.OS === "ios" && showEditDatePicker ? (
+                <Pressable
+                  style={styles.secondaryButton}
+                  onPress={() => setShowEditDatePicker(false)}
+                >
+                  <Text style={styles.secondaryButtonText}>Done</Text>
+                </Pressable>
+              ) : null}
+
+              <Pressable
+                style={[
+                  styles.primaryButton,
+                  {
+                    alignItems: "center",
+                    marginTop: 22,
+                    opacity: saving ? 0.6 : 1,
+                  },
+                ]}
+                disabled={saving}
+                onPress={handleUpdateAssignment}
+              >
+                {saving ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.primaryButtonText}>
+                    Save Changes
+                  </Text>
+                )}
+              </Pressable>
+
+              <Pressable
+                style={styles.secondaryButton}
+                onPress={() => {
+                  setShowEditModal(false);
+                  resetEditForm();
                 }}
               >
                 <Text style={styles.secondaryButtonText}>Cancel</Text>
