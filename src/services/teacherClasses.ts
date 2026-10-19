@@ -14,6 +14,7 @@ export type TeacherClass = {
   subjects: {
     id: string;
     name: string;
+    has_lab: boolean;
   }[];
 };
 
@@ -74,10 +75,10 @@ export async function getMyTeacherClasses(): Promise<{
 
     if (classError) throw classError;
 
-    // Fetch subject details
+    // Fetch subject details INCLUDING has_lab
     const { data: subjects, error: subjectError } = await supabase
       .from("subjects")
-      .select("id, name")
+      .select("id, name, has_lab")
       .in("id", subjectIds);
 
     if (subjectError) throw subjectError;
@@ -93,6 +94,7 @@ export async function getMyTeacherClasses(): Promise<{
         .map((subject) => ({
           id: subject.id,
           name: subject.name,
+          has_lab: subject.has_lab === true,
         }));
 
       return {

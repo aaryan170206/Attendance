@@ -1,6 +1,7 @@
 
 import * as SplashScreen from "expo-splash-screen";
 
+import AdminTabs from "@/components/admin-tabs";
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import AppTabs from "@/components/app-tabs";
 import AuthScreen from "@/components/AuthScreen";
@@ -66,17 +67,7 @@ function AppContent() {
   }
 
   if (role === "admin") {
-    return (
-      <View
-        style={{
-          flex: 1,
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <Text>Admin interface will be added later.</Text>
-      </View>
-    );
+    return <AdminTabs />;
   }
 
   return null;

@@ -4,72 +4,166 @@ import { useSubjects } from "@/context/SubjectContext";
 import { useTheme } from "@/context/ThemeContext";
 import { calculateAttendance } from "@/utils/attendanceCalculator";
 
-import { useState } from "react";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { useMemo, useState } from "react";
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function HomeScreen() {
-  const {
-    subjects,
-    addSubject,
-    deleteSubject,
-  } = useSubjects();
-
-  const {
-    attendance,
-    removeSubjectAttendance,
-  } = useAttendance();
-
+  const { subjects } = useSubjects();
+  const { attendance } = useAttendance();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const [subjectName, setSubjectName] = useState("");
-  const [hasLab, setHasLab] = useState(false);
+  // Only one subject can be expanded at a time.
+  const [expandedSubjectId, setExpandedSubjectId] =
+    useState<string | null>(null);
 
-  const handleAddSubject = () => {
-    if (subjectName.trim() !== "") {
-      addSubject(
-        subjectName.trim(),
-        hasLab
-      );
-
-      setSubjectName("");
-      setHasLab(false);
+  // Attendance colour based on percentage.
+  const getAttendanceColor = (percentage: number) => {
+    if (percentage > 75) {
+      return colors.present;
     }
+
+    if (percentage >= 50) {
+      return colors.leftEarly;
+    }
+
+    return colors.absent;
   };
 
-  const handleDeleteSubject = (
-    name: string
+  // Progress bar component.
+  const renderProgress = (
+    percentage: number,
+    color: string
   ) => {
-    Alert.alert(
-      "Delete Subject",
-      `Are you sure you want to delete ${name}?`,
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            deleteSubject(name);
+    const safePercentage = Math.max(
+      0,
+      Math.min(100, percentage)
+    );
 
-            await removeSubjectAttendance(
-              name
-            );
-          },
-        },
-      ]
+    return (
+      <View
+        style={[
+          styles.progressBackground,
+          { backgroundColor: colors.background },
+        ]}
+      >
+        <View
+          style={[
+            styles.progressFill,
+            {
+              width: `${safePercentage}%`,
+              backgroundColor: color,
+            },
+          ]}
+        />
+      </View>
+    );
+  };
+
+  // Calculate attendance for every subject.
+  const subjectData = useMemo(() => {
+    return subjects.map((subject) => {
+      const theory = calculateAttendance(
+        attendance,
+        subject.name,
+        "theory"
+      );
+
+      const lab = subject.hasLab
+        ? calculateAttendance(
+            attendance,
+            subject.name,
+            "lab"
+          )
+        : null;
+
+      const totalAttended =
+        theory.attendedClasses +
+        (lab?.attendedClasses ?? 0);
+
+      const totalClasses =
+        theory.totalClasses +
+        (lab?.totalClasses ?? 0);
+
+      const overallPercentage =
+        totalClasses === 0
+          ? 0
+          : (totalAttended / totalClasses) * 100;
+
+      return {
+        ...subject,
+        theory,
+        lab,
+        totalAttended,
+        totalClasses,
+        overallPercentage,
+      };
+    });
+  }, [subjects, attendance]);
+
+  // Toggle expandable subject card.
+  const toggleSubject = (subjectId: string) => {
+    setExpandedSubjectId((current) =>
+      current === subjectId ? null : subjectId
+    );
+  };
+
+  // Render individual attendance section.
+  const renderAttendanceSection = (
+    title: string,
+    emoji: string,
+    percentage: number,
+    attended: number,
+    total: number
+  ) => {
+    const color = getAttendanceColor(percentage);
+
+    return (
+      <View style={styles.attendanceSection}>
+        <View style={styles.attendanceHeading}>
+          <View style={styles.attendanceType}>
+            <Text style={styles.attendanceEmoji}>
+              {emoji}
+            </Text>
+
+            <Text
+              style={[
+                styles.attendanceTitle,
+                { color: colors.text },
+              ]}
+            >
+              {title}
+            </Text>
+          </View>
+
+          <Text
+            style={[
+              styles.attendancePercentage,
+              { color },
+            ]}
+          >
+            {percentage.toFixed(1)}%
+          </Text>
+        </View>
+
+        {renderProgress(percentage, color)}
+
+        <Text
+          style={[
+            styles.attendanceClasses,
+            { color: colors.textSecondary },
+          ]}
+        >
+          {attended} of {total} classes attended
+        </Text>
+      </View>
     );
   };
 
@@ -77,9 +171,7 @@ export default function HomeScreen() {
     <ScrollView
       style={[
         styles.container,
-        {
-          backgroundColor: colors.background,
-        },
+        { backgroundColor: colors.background },
       ]}
       contentContainerStyle={[
         styles.content,
@@ -92,147 +184,87 @@ export default function HomeScreen() {
       showsVerticalScrollIndicator={false}
     >
       {/* HEADER */}
-
-      <Text
-        style={[
-          styles.title,
-          {
-            color: colors.text,
-          },
-        ]}
-      >
-        Subjects
-      </Text>
-
-      <Text
-        style={[
-          styles.subtitle,
-          {
-            color: colors.textSecondary,
-          },
-        ]}
-      >
-        Manage your subjects and attendance
-      </Text>
-
-      {/* ADD SUBJECT CARD */}
-
-      <View
-        style={[
-          styles.addCard,
-          {
-            backgroundColor: colors.card,
-            borderColor: colors.border,
-          },
-        ]}
-      >
-        <Text
-          style={[
-            styles.cardTitle,
-            {
-              color: colors.text,
-            },
-          ]}
-        >
-          Add Subject
-        </Text>
-
-        <TextInput
-          value={subjectName}
-          onChangeText={setSubjectName}
-          placeholder="Enter subject name"
-          placeholderTextColor={
-            colors.textSecondary
-          }
-          style={[
-            styles.input,
-            {
-              color: colors.text,
-              backgroundColor: colors.cardSecondary,
-              borderColor: colors.border,
-            },
-          ]}
-        />
-
-        {/* LAB TOGGLE */}
-
-        <Pressable
-          onPress={() => setHasLab(!hasLab)}
-          style={[
-            styles.labToggle,
-            {
-              backgroundColor: hasLab
-                ? colors.labPresent
-                : colors.cardSecondary,
-              borderColor: colors.border,
-            },
-          ]}
-        >
-          <View
+      <View style={styles.header}>
+        <View style={styles.headerTextContainer}>
+          <Text
             style={[
-              styles.checkbox,
-              {
-                borderColor: hasLab
-                  ? colors.labPresent
-                  : colors.textSecondary,
-                backgroundColor: hasLab
-                  ? colors.labPresent
-                  : "transparent",
-              },
+              styles.eyebrow,
+              { color: colors.textSecondary },
             ]}
           >
-            {hasLab && (
-              <Text style={styles.checkmark}>
-                ✓
-              </Text>
-            )}
-          </View>
+            YOUR ACADEMIC SPACE
+          </Text>
 
           <Text
             style={[
-              styles.labToggleText,
-              {
-                color: hasLab
-                  ? "#FFFFFF"
-                  : colors.text,
-              },
+              styles.title,
+              { color: colors.text },
             ]}
           >
-            This subject has a lab
+            My Subjects
           </Text>
-        </Pressable>
 
-        {/* ADD BUTTON */}
+          <Text
+            style={[
+              styles.subtitle,
+              { color: colors.textSecondary },
+            ]}
+          >
+            Your classes, your progress.
+          </Text>
+        </View>
 
-        <Pressable
-          onPress={handleAddSubject}
+        <View
           style={[
-            styles.addButton,
-            {
-              backgroundColor: colors.primary,
-            },
+            styles.headerIcon,
+            { backgroundColor: `${colors.primary}18` },
           ]}
         >
-          <Text style={styles.addButtonText}>
-            Add Subject
-          </Text>
-        </Pressable>
+          <Text style={styles.headerEmoji}>📚</Text>
+        </View>
       </View>
 
-      {/* SUBJECT LIST */}
+      {/* SUBJECT SECTION HEADING */}
+      <View style={styles.sectionHeader}>
+        <View>
+          <Text
+            style={[
+              styles.sectionTitle,
+              { color: colors.text },
+            ]}
+          >
+            Your Subjects
+          </Text>
 
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: colors.text,
-          },
-        ]}
-      >
-        Your Subjects
-      </Text>
+          <Text
+            style={[
+              styles.sectionSubtitle,
+              { color: colors.textSecondary },
+            ]}
+          >
+            Tap a subject to view its attendance.
+          </Text>
+        </View>
 
-      {subjects.length === 0 ? (
+        <View
+          style={[
+            styles.subjectCountBadge,
+            { backgroundColor: `${colors.primary}18` },
+          ]}
+        >
+          <Text
+            style={[
+              styles.subjectCountText,
+              { color: colors.primary },
+            ]}
+          >
+            {subjects.length}
+          </Text>
+        </View>
+      </View>
+
+      {/* EMPTY STATE */}
+      {subjectData.length === 0 ? (
         <View
           style={[
             styles.emptyCard,
@@ -242,55 +274,84 @@ export default function HomeScreen() {
             },
           ]}
         >
-          <Text
+          <View
             style={[
-              styles.emptyText,
-              {
-                color: colors.textSecondary,
-              },
+              styles.emptyIcon,
+              { backgroundColor: `${colors.primary}18` },
             ]}
           >
-            No subjects added yet.
+            <Text style={styles.emptyEmoji}>📖</Text>
+          </View>
+
+          <Text
+            style={[
+              styles.emptyTitle,
+              { color: colors.text },
+            ]}
+          >
+            No subjects assigned yet
+          </Text>
+
+          <Text
+            style={[
+              styles.emptyDescription,
+              { color: colors.textSecondary },
+            ]}
+          >
+            Your administrator will assign your subjects.
+            Once assigned, they will appear here.
           </Text>
         </View>
       ) : (
-        subjects.map((subject) => {
-          const theoryStats =
-            calculateAttendance(
-              attendance,
-              subject.name,
-              "theory"
-            );
+        subjectData.map((subject, index) => {
+          const isExpanded =
+            expandedSubjectId === subject.id;
 
-          const labStats = subject.hasLab
-            ? calculateAttendance(
-                attendance,
-                subject.name,
-                "lab"
-              )
-            : null;
+          const overallColor = getAttendanceColor(
+            subject.overallPercentage
+          );
+
+          const subjectStatus =
+            subject.totalClasses === 0
+              ? "No attendance recorded"
+              : subject.overallPercentage > 75
+                ? "Good standing"
+                : subject.overallPercentage >= 50
+                  ? "Needs improvement"
+                  : "Attendance is low";
 
           return (
             <View
-              key={subject.name}
+              key={subject.id}
               style={[
                 styles.subjectCard,
-                {
-                  backgroundColor: colors.card,
-                  borderColor: colors.border,
-                },
+                { backgroundColor: colors.card },
               ]}
             >
-              {/* SUBJECT HEADER */}
+              {/* COLLAPSED HEADER */}
+              <Pressable
+                onPress={() => toggleSubject(subject.id)}
+                style={({ pressed }) => [
+                  styles.subjectHeader,
+                  { opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.subjectIcon,
+                    { backgroundColor: `${colors.primary}18` },
+                  ]}
+                >
+                  <Text style={styles.subjectEmoji}>
+                    {index % 2 === 0 ? "📘" : "📗"}
+                  </Text>
+                </View>
 
-              <View style={styles.subjectHeader}>
                 <View style={styles.subjectInfo}>
                   <Text
                     style={[
                       styles.subjectName,
-                      {
-                        color: colors.text,
-                      },
+                      { color: colors.text },
                     ]}
                   >
                     {subject.name}
@@ -299,141 +360,176 @@ export default function HomeScreen() {
                   <Text
                     style={[
                       styles.subjectType,
-                      {
-                        color: colors.textSecondary,
-                      },
+                      { color: colors.textSecondary },
                     ]}
                   >
                     {subject.hasLab
                       ? "Theory + Lab"
                       : "Theory only"}
                   </Text>
-                </View>
 
-                {/* DELETE BUTTON */}
-
-                <Pressable
-                  onPress={() =>
-                    handleDeleteSubject(
-                      subject.name
-                    )
-                  }
-                  style={[
-                    styles.deleteButton,
-                    {
-                      backgroundColor:
-                        colors.cardSecondary,
-                    },
-                  ]}
-                >
                   <Text
                     style={[
-                      styles.deleteText,
-                      {
-                        color: colors.absent,
-                      },
+                      styles.subjectClasses,
+                      { color: colors.textSecondary },
                     ]}
                   >
-                    Delete
+                    {subject.totalAttended}/
+                    {subject.totalClasses} classes attended
                   </Text>
-                </Pressable>
-              </View>
+                </View>
 
-              {/* THEORY */}
-
-              <View style={styles.attendanceRow}>
-                <Text
-                  style={[
-                    styles.attendanceLabel,
-                    {
-                      color: colors.textSecondary,
-                    },
-                  ]}
-                >
-                  Theory
-                </Text>
-
-                <Text
-                  style={[
-                    styles.attendancePercentage,
-                    {
-                      color:
-                        theoryStats.percentage > 75
-                          ? colors.present
-                          : theoryStats.percentage >= 50
-                            ? colors.leftEarly
-                            : colors.absent,
-                    },
-                  ]}
-                >
-                  {theoryStats.percentage.toFixed(1)}
-                  %
-                </Text>
-              </View>
-
-              <Text
-                style={[
-                  styles.attendanceClasses,
-                  {
-                    color: colors.textSecondary,
-                  },
-                ]}
-              >
-                {theoryStats.attendedClasses} /{" "}
-                {theoryStats.totalClasses} classes
-              </Text>
-
-              {/* LAB */}
-
-              {subject.hasLab && labStats && (
-                <View style={styles.labSection}>
-                  <View style={styles.attendanceRow}>
+                <View style={styles.headerActions}>
+                  <View
+                    style={[
+                      styles.subjectPercentageBadge,
+                      { backgroundColor: `${overallColor}18` },
+                    ]}
+                  >
                     <Text
                       style={[
-                        styles.attendanceLabel,
-                        {
-                          color: colors.textSecondary,
-                        },
+                        styles.subjectPercentage,
+                        { color: overallColor },
                       ]}
                     >
-                      Lab
-                    </Text>
-
-                    <Text
-                      style={[
-                        styles.attendancePercentage,
-                        {
-                          color:
-                            labStats.percentage > 75
-                              ? colors.present
-                              : labStats.percentage >= 50
-                                ? colors.leftEarly
-                                : colors.absent,
-                        },
-                      ]}
-                    >
-                      {labStats.percentage.toFixed(1)}
-                      %
+                      {subject.overallPercentage.toFixed(1)}%
                     </Text>
                   </View>
 
                   <Text
                     style={[
-                      styles.attendanceClasses,
-                      {
-                        color: colors.textSecondary,
-                      },
+                      styles.expandIcon,
+                      { color: colors.textSecondary },
                     ]}
                   >
-                    {labStats.attendedClasses} /{" "}
-                    {labStats.totalClasses} classes
+                    {isExpanded ? "⌃" : "⌄"}
                   </Text>
+                </View>
+              </Pressable>
+
+              {/* EXPANDABLE CONTENT */}
+              {isExpanded && (
+                <View style={styles.expandedContent}>
+                  <View
+                    style={[
+                      styles.subjectDivider,
+                      { backgroundColor: colors.border },
+                    ]}
+                  />
+
+                  {/* SUBJECT OVERALL PROGRESS */}
+                  <View style={styles.overallSection}>
+                    <View style={styles.progressHeading}>
+                      <Text
+                        style={[
+                          styles.progressLabel,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
+                        Overall progress
+                      </Text>
+
+                      <Text
+                        style={[
+                          styles.progressClasses,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
+                        {subject.totalAttended}/
+                        {subject.totalClasses} classes
+                      </Text>
+                    </View>
+
+                    {renderProgress(
+                      subject.overallPercentage,
+                      overallColor
+                    )}
+                  </View>
+
+                  <View
+                    style={[
+                      styles.subjectDivider,
+                      { backgroundColor: colors.border },
+                    ]}
+                  />
+
+                  {/* THEORY */}
+                  {renderAttendanceSection(
+                    "Theory",
+                    "📖",
+                    subject.theory.percentage,
+                    subject.theory.attendedClasses,
+                    subject.theory.totalClasses
+                  )}
+
+                  {/* LAB - ONLY IF SUBJECT HAS LAB */}
+                  {subject.hasLab && subject.lab && (
+                    <>
+                      <View
+                        style={[
+                          styles.sectionDivider,
+                          { backgroundColor: colors.border },
+                        ]}
+                      />
+
+                      {renderAttendanceSection(
+                        "Lab",
+                        "💻",
+                        subject.lab.percentage,
+                        subject.lab.attendedClasses,
+                        subject.lab.totalClasses
+                      )}
+                    </>
+                  )}
+
+                  {/* SUBJECT STATUS */}
+                  <View
+                    style={[
+                      styles.statusFooter,
+                      { backgroundColor: colors.background },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.statusDot,
+                        { backgroundColor: overallColor },
+                      ]}
+                    />
+
+                    <Text
+                      style={[
+                        styles.statusText,
+                        { color: colors.textSecondary },
+                      ]}
+                    >
+                      {subjectStatus}
+                    </Text>
+                  </View>
                 </View>
               )}
             </View>
           );
         })
       )}
+
+      {/* FOOTER NOTE */}
+      {subjects.length > 0 && (
+        <View style={styles.footerNote}>
+          <Text style={styles.footerEmoji}>💡</Text>
+
+          <Text
+            style={[
+              styles.footerText,
+              { color: colors.textSecondary },
+            ]}
+          >
+            Try to maintain at least 75% attendance in
+            every subject.
+          </Text>
+        </View>
+      )}
+
+      <View style={styles.bottomSpace} />
     </ScrollView>
   );
 }
@@ -444,165 +540,305 @@ const styles = StyleSheet.create({
   },
 
   content: {
-    paddingBottom: 40,
+    paddingBottom: 25,
+  },
+
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 30,
+  },
+
+  headerTextContainer: {
+    flex: 1,
+  },
+
+  eyebrow: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.5,
+    marginBottom: 7,
   },
 
   title: {
-    fontSize: 30,
-    fontWeight: "700",
-    marginTop: 10,
+    fontSize: 32,
+    fontWeight: "800",
+    letterSpacing: -0.8,
   },
 
   subtitle: {
-    fontSize: 15,
-    marginTop: 4,
-    marginBottom: 20,
+    fontSize: 13,
+    marginTop: 6,
   },
 
-  addCard: {
+  headerIcon: {
+    width: 55,
+    height: 55,
     borderRadius: 18,
-    padding: 18,
-    borderWidth: 1,
-    marginBottom: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 12,
   },
 
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 12,
+  headerEmoji: {
+    fontSize: 26,
   },
 
-  input: {
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    fontSize: 15,
-  },
-
-  labToggle: {
+  sectionHeader: {
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 12,
-    marginTop: 12,
-  },
-
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 2,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 10,
-  },
-
-  checkmark: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
-  labToggleText: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-
-  addButton: {
-    height: 48,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 12,
-  },
-
-  addButtonText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "600",
+    marginBottom: 17,
   },
 
   sectionTitle: {
     fontSize: 21,
-    fontWeight: "700",
-    marginBottom: 10,
+    fontWeight: "800",
+  },
+
+  sectionSubtitle: {
+    fontSize: 12,
+    marginTop: 5,
+  },
+
+  subjectCountBadge: {
+    minWidth: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 9,
+  },
+
+  subjectCountText: {
+    fontSize: 14,
+    fontWeight: "800",
   },
 
   subjectCard: {
-    borderRadius: 18,
-    padding: 18,
-    borderWidth: 1,
-    marginBottom: 12,
+    borderRadius: 21,
+    padding: 16,
+    marginBottom: 14,
+    overflow: "hidden",
   },
 
   subjectHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+  },
+
+  subjectIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  subjectEmoji: {
+    fontSize: 22,
   },
 
   subjectInfo: {
     flex: 1,
-    paddingRight: 10,
+    minWidth: 0,
   },
 
   subjectName: {
-    fontSize: 17,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "800",
   },
 
   subjectType: {
-    fontSize: 12,
+    fontSize: 11,
     marginTop: 4,
   },
 
-  deleteButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+  subjectClasses: {
+    fontSize: 10,
+    marginTop: 4,
   },
 
-  deleteText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-
-  attendanceRow: {
-    flexDirection: "row",
+  headerActions: {
     alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 7,
+    gap: 5,
+  },
+
+  subjectPercentageBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+
+  subjectPercentage: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  expandIcon: {
+    fontSize: 21,
+    fontWeight: "700",
+    lineHeight: 23,
+  },
+
+  expandedContent: {
+    marginTop: 2,
+  },
+
+  subjectDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 17,
+  },
+
+  overallSection: {
+    marginBottom: 2,
+  },
+
+  progressHeading: {
+    flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 16,
+    marginBottom: 9,
   },
 
-  attendanceLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-
-  attendancePercentage: {
-    fontSize: 18,
+  progressLabel: {
+    fontSize: 11,
     fontWeight: "700",
   },
 
-  attendanceClasses: {
-    fontSize: 12,
-    marginTop: 3,
+  progressClasses: {
+    fontSize: 10,
   },
 
-  labSection: {
-    marginTop: 4,
+  progressBackground: {
+    width: "100%",
+    height: 8,
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+
+  progressFill: {
+    height: "100%",
+    borderRadius: 10,
+  },
+
+  attendanceSection: {
+    paddingVertical: 2,
+  },
+
+  attendanceHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 11,
+  },
+
+  attendanceType: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  attendanceEmoji: {
+    fontSize: 17,
+    marginRight: 9,
+  },
+
+  attendanceTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+
+  attendancePercentage: {
+    fontSize: 16,
+    fontWeight: "800",
+  },
+
+  attendanceClasses: {
+    fontSize: 11,
+    marginTop: 9,
+  },
+
+  sectionDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 18,
+  },
+
+  statusFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 19,
+  },
+
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 9,
+  },
+
+  statusText: {
+    fontSize: 11,
+    fontWeight: "600",
   },
 
   emptyCard: {
-    borderRadius: 18,
-    padding: 25,
+    borderRadius: 20,
     borderWidth: 1,
+    borderStyle: "dashed",
+    padding: 30,
+    alignItems: "center",
+    marginTop: 5,
   },
 
-  emptyText: {
-    fontSize: 14,
+  emptyIcon: {
+    width: 65,
+    height: 65,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 15,
+  },
+
+  emptyEmoji: {
+    fontSize: 30,
+  },
+
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+  },
+
+  emptyDescription: {
+    fontSize: 12,
+    lineHeight: 19,
     textAlign: "center",
+    marginTop: 8,
+  },
+
+  footerNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 5,
+    marginTop: 9,
+  },
+
+  footerEmoji: {
+    fontSize: 17,
+    marginRight: 9,
+  },
+
+  footerText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 17,
+  },
+
+  bottomSpace: {
+    height: 25,
   },
 });

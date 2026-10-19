@@ -56,6 +56,11 @@ type AssignmentSubmission = {
   } | null;
 };
 
+type AssignmentCreator = {
+  teacher_id: string;
+  full_name: string;
+};
+
 // --------------------------------------------------
 // GET LOGGED-IN USER
 // --------------------------------------------------
@@ -272,6 +277,9 @@ export async function getMyAssignments() {
     return { data: null, error: userError };
   }
 
+  // Do not fetch description here.
+  // Department teachers should only receive assignment summaries.
+
   const { data: assignments, error: assignmentError } =
     await supabase
       .from("assignments")
@@ -281,7 +289,6 @@ export async function getMyAssignments() {
         class_id,
         subject_id,
         title,
-        description,
         due_date,
         created_at
       `)
@@ -338,6 +345,56 @@ export async function getMyAssignments() {
   });
 
   return { data: result, error: null };
+}
+
+// --------------------------------------------------
+// GET ASSIGNMENT CREATOR NAMES
+// --------------------------------------------------
+
+export async function getAssignmentCreatorNames() {
+  const { user, error: userError } = await getCurrentUser();
+
+  if (userError || !user) {
+    return { data: null, error: userError };
+  }
+
+  const { data, error } = await supabase.rpc(
+    "get_assignment_creator_names"
+  );
+
+  return {
+    data: data as AssignmentCreator[] | null,
+    error,
+  };
+}
+
+// --------------------------------------------------
+// GET ASSIGNMENT DETAILS
+// CREATOR ONLY - USING SUPABASE RPC
+// --------------------------------------------------
+
+export async function getAssignmentDetails(assignmentId: string) {
+  const { user, error: userError } = await getCurrentUser();
+
+  if (userError || !user) {
+    return { data: null, error: userError };
+  }
+
+  const { data, error } = await supabase.rpc(
+    "get_assignment_details",
+    {
+      p_assignment_id: assignmentId,
+    }
+  );
+
+  if (error) {
+    return { data: null, error };
+  }
+
+  return {
+    data: data?.[0] ?? null,
+    error: null,
+  };
 }
 
 // --------------------------------------------------

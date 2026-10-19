@@ -1,3 +1,15 @@
+
+import { useState } from "react";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Circle, Line, Text as SvgText } from "react-native-svg";
+
 import { Layout, Spacing } from "@/constants/spacing";
 import { useAttendance } from "@/context/AttendanceContext";
 import { useSubjects } from "@/context/SubjectContext";
@@ -10,20 +22,6 @@ import {
   calculateOverallLabAttendance,
   calculateOverallTheoryAttendance,
 } from "@/utils/attendanceCalculator";
-import { useState } from "react";
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, {
-  Circle,
-  Line,
-  Text as SvgText,
-} from "react-native-svg";
 
 export default function DashboardScreen() {
   const { attendance } = useAttendance();
@@ -31,7 +29,12 @@ export default function DashboardScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
+  const [expandedSubject, setExpandedSubject] =
+    useState<string | null>(null);
+
+  // --------------------------------------------------
+  // ATTENDANCE STATISTICS
+  // --------------------------------------------------
 
   const overallStats = calculateOverallAttendance(attendance);
   const theoryStats = calculateOverallTheoryAttendance(attendance);
@@ -39,27 +42,27 @@ export default function DashboardScreen() {
   const clubClasses = calculateClubClasses(attendance);
   const trend = calculateAttendanceTrend(attendance);
 
-  // Attendance colour scale used throughout the dashboard.
+  // --------------------------------------------------
+  // ATTENDANCE COLOURS
+  // --------------------------------------------------
+
   const getAttendanceColor = (percentage: number) => {
-    if (percentage > 90) return "#06B6D4"; // Cyan
-    if (percentage >= 75) return "#22C55E"; // Green
-    if (percentage >= 65) return "#F97316"; // Orange
-    if (percentage >= 50) return "#EAB308"; // Yellow
-    return "#EF4444"; // Red
+    if (percentage > 90) return "#06B6D4";
+    if (percentage >= 75) return "#22C55E";
+    if (percentage >= 65) return "#F97316";
+    if (percentage >= 50) return "#EAB308";
+    return "#EF4444";
   };
 
-  /*
-   * -------------------------
-   * ATTENDANCE GUIDANCE
-   * -------------------------
-   */
+  // --------------------------------------------------
+  // ATTENDANCE GUIDANCE
+  // --------------------------------------------------
 
-  const getClassesNeededFor75 = (attended: number, total: number) => {
-    if (total === 0) {
-      return 0;
-    }
-
-    if (attended / total >= 0.75) {
+  const getClassesNeededFor75 = (
+    attended: number,
+    total: number
+  ) => {
+    if (total === 0 || attended / total >= 0.75) {
       return 0;
     }
 
@@ -76,16 +79,16 @@ export default function DashboardScreen() {
     return classesNeeded;
   };
 
-  const getClassesCanMiss = (attended: number, total: number) => {
-    if (total === 0) {
-      return 0;
-    }
+  const getClassesCanMiss = (
+    attended: number,
+    total: number
+  ) => {
+    if (total === 0) return 0;
 
     let classesCanMiss = 0;
 
     while (
-      attended /
-        (total + classesCanMiss + 1) >=
+      attended / (total + classesCanMiss + 1) >=
       0.75
     ) {
       classesCanMiss++;
@@ -94,18 +97,18 @@ export default function DashboardScreen() {
     return classesCanMiss;
   };
 
-  /*
-   * -------------------------
-   * TREND GRAPH CALCULATIONS
-   * -------------------------
-   */
+  // --------------------------------------------------
+  // TREND GRAPH
+  // --------------------------------------------------
 
   const chartWidth = 320;
   const chartHeight = 220;
+
   const graphLeft = 40;
   const graphRight = 300;
   const graphTop = 20;
-  const graphBottom = 200;
+  const graphBottom = 195;
+
   const graphWidth = graphRight - graphLeft;
   const graphHeight = graphBottom - graphTop;
 
@@ -132,11 +135,9 @@ export default function DashboardScreen() {
     );
   };
 
-  /*
-   * -------------------------
-   * SUBJECT DATA
-   * -------------------------
-   */
+  // --------------------------------------------------
+  // SUBJECT DATA
+  // --------------------------------------------------
 
   const subjectData = subjects.map((subject) => {
     const theory = calculateAttendance(
@@ -176,6 +177,106 @@ export default function DashboardScreen() {
     };
   });
 
+  // --------------------------------------------------
+  // REUSABLE PROGRESS BAR
+  // --------------------------------------------------
+
+  const renderProgressBar = (
+    percentage: number,
+    height = 8
+  ) => {
+    const safePercentage = Math.max(
+      0,
+      Math.min(100, percentage)
+    );
+
+    const progressColor = getAttendanceColor(percentage);
+
+    return (
+      <View
+        style={[
+          styles.progressBackground,
+          {
+            height,
+            backgroundColor: colors.cardSecondary,
+          },
+        ]}
+      >
+        <View
+          style={[
+            styles.progressFill,
+            {
+              width: `${safePercentage}%`,
+              backgroundColor: progressColor,
+            },
+          ]}
+        />
+      </View>
+    );
+  };
+
+  // --------------------------------------------------
+  // STAT CARD
+  // --------------------------------------------------
+
+  const renderStatCard = (
+    label: string,
+    value: string,
+    description: string,
+    accent: string,
+    emoji: string
+  ) => (
+    <View
+      style={[
+        styles.statCard,
+        {
+          backgroundColor: colors.card,
+          borderColor: colors.border,
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.statIcon,
+          { backgroundColor: `${accent}18` },
+        ]}
+      >
+        <Text style={styles.statEmoji}>{emoji}</Text>
+      </View>
+
+      <Text
+        style={[
+          styles.statLabel,
+          { color: colors.textSecondary },
+        ]}
+      >
+        {label}
+      </Text>
+
+      <Text
+        style={[
+          styles.statValue,
+          { color: accent },
+        ]}
+      >
+        {value}
+      </Text>
+
+      <Text
+        style={[
+          styles.statDescription,
+          { color: colors.textSecondary },
+        ]}
+      >
+        {description}
+      </Text>
+    </View>
+  );
+
+  // --------------------------------------------------
+  // MAIN UI
+  // --------------------------------------------------
+
   return (
     <ScrollView
       style={[
@@ -195,23 +296,45 @@ export default function DashboardScreen() {
     >
       {/* HEADER */}
 
-      <Text
-        style={[
-          styles.title,
-          { color: colors.text },
-        ]}
-      >
-        Dashboard
-      </Text>
+      <View style={styles.header}>
+        <View style={{ flex: 1 }}>
+          <Text
+            style={[
+              styles.eyebrow,
+              { color: colors.textSecondary },
+            ]}
+          >
+            YOUR ACADEMIC PROGRESS
+          </Text>
 
-      <Text
-        style={[
-          styles.subtitle,
-          { color: colors.textSecondary },
-        ]}
-      >
-        Your attendance overview
-      </Text>
+          <Text
+            style={[
+              styles.title,
+              { color: colors.text },
+            ]}
+          >
+            Dashboard
+          </Text>
+
+          <Text
+            style={[
+              styles.subtitle,
+              { color: colors.textSecondary },
+            ]}
+          >
+            A clear picture of your attendance.
+          </Text>
+        </View>
+
+        <View
+          style={[
+            styles.headerIcon,
+            { backgroundColor: `${colors.primary}18` },
+          ]}
+        >
+          <Text style={styles.headerEmoji}>📊</Text>
+        </View>
+      </View>
 
       {/* OVERALL ATTENDANCE */}
 
@@ -224,27 +347,44 @@ export default function DashboardScreen() {
           },
         ]}
       >
-        <Text
-          style={[
-            styles.cardLabel,
-            { color: colors.textSecondary },
-          ]}
-        >
-          Overall Attendance
-        </Text>
+        <View style={styles.overallTopRow}>
+          <View>
+            <Text
+              style={[
+                styles.cardLabel,
+                { color: colors.textSecondary },
+              ]}
+            >
+              Overall Attendance
+            </Text>
 
-        <Text
-          style={[
-            styles.overallPercentage,
-            {
-              color: getAttendanceColor(
-                overallStats.percentage
-              ),
-            },
-          ]}
-        >
-          {overallStats.percentage.toFixed(1)}%
-        </Text>
+            <Text
+              style={[
+                styles.overallPercentage,
+                {
+                  color: getAttendanceColor(
+                    overallStats.percentage
+                  ),
+                },
+              ]}
+            >
+              {overallStats.percentage.toFixed(1)}%
+            </Text>
+          </View>
+
+          <View
+            style={[
+              styles.overallIcon,
+              {
+                backgroundColor: `${getAttendanceColor(
+                  overallStats.percentage
+                )}18`,
+              },
+            ]}
+          >
+            <Text style={styles.overallEmoji}>🎯</Text>
+          </View>
+        </View>
 
         <Text
           style={[
@@ -252,184 +392,43 @@ export default function DashboardScreen() {
             { color: colors.textSecondary },
           ]}
         >
-          {overallStats.attendedClasses} /{" "}
+          {overallStats.attendedClasses} of{" "}
           {overallStats.totalClasses} classes attended
         </Text>
 
-        <View
-          style={[
-            styles.progressBackground,
-            {
-              backgroundColor: colors.cardSecondary,
-            },
-          ]}
-        >
-          <View
+        {renderProgressBar(overallStats.percentage, 10)}
+
+        <View style={styles.progressFooter}>
+          <Text
             style={[
-              styles.progressFill,
-              {
-                width: `${Math.min(
-                  overallStats.percentage,
-                  100
-                )}%`,
-                backgroundColor: getAttendanceColor(
-                  overallStats.percentage
-                ),
-              },
+              styles.progressFooterText,
+              { color: colors.textSecondary },
             ]}
-          />
+          >
+            Attendance progress
+          </Text>
+
+          <Text
+            style={[
+              styles.targetText,
+              { color: "#22C55E" },
+            ]}
+          >
+            Target: 75%
+          </Text>
         </View>
       </View>
 
       {/* THEORY / LAB / CLUB */}
 
-      <View style={styles.statsRow}>
-        {/* THEORY */}
-
-        <View
-          style={[
-            styles.smallCard,
-            {
-              backgroundColor: colors.card,
-              borderColor: colors.border,
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.smallCardTitle,
-              { color: colors.textSecondary },
-            ]}
-          >
-            Theory
-          </Text>
-
-          <Text
-            style={[
-              styles.smallPercentage,
-              {
-                color: getAttendanceColor(
-                  theoryStats.percentage
-                ),
-              },
-            ]}
-          >
-            {theoryStats.percentage.toFixed(1)}%
-          </Text>
-
-          <Text
-            style={[
-              styles.smallCardText,
-              { color: colors.textSecondary },
-            ]}
-          >
-            {theoryStats.attendedTheory} /{" "}
-            {theoryStats.totalTheory}
-          </Text>
-        </View>
-
-        {/* LAB */}
-
-        <View
-          style={[
-            styles.smallCard,
-            {
-              backgroundColor: colors.card,
-              borderColor: colors.border,
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.smallCardTitle,
-              { color: colors.textSecondary },
-            ]}
-          >
-            Labs
-          </Text>
-
-          <Text
-            style={[
-              styles.smallPercentage,
-              {
-                color: getAttendanceColor(
-                  labStats.percentage
-                ),
-              },
-            ]}
-          >
-            {labStats.percentage.toFixed(1)}%
-          </Text>
-
-          <Text
-            style={[
-              styles.smallCardText,
-              { color: colors.textSecondary },
-            ]}
-          >
-            {labStats.attendedLabs} /{" "}
-            {labStats.totalLabs}
-          </Text>
-        </View>
-
-        {/* CLUB */}
-
-        <View
-          style={[
-            styles.smallCard,
-            {
-              backgroundColor: colors.card,
-              borderColor: colors.border,
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.smallCardTitle,
-              { color: colors.textSecondary },
-            ]}
-          >
-            Club
-          </Text>
-
-          <Text
-            style={[
-              styles.smallPercentage,
-              { color: colors.club },
-            ]}
-          >
-            {clubClasses}
-          </Text>
-
-          <Text
-            style={[
-              styles.smallCardText,
-              { color: colors.textSecondary },
-            ]}
-          >
-            classes
-          </Text>
-        </View>
-      </View>
-
-      {/* ATTENDANCE TREND */}
-
-      <View
-        style={[
-          styles.card,
-          {
-            backgroundColor: colors.card,
-            borderColor: colors.border,
-          },
-        ]}
-      >
+      <View style={styles.sectionHeader}>
         <Text
           style={[
             styles.sectionTitle,
             { color: colors.text },
           ]}
         >
-          Attendance Trend
+          Attendance Breakdown
         </Text>
 
         <Text
@@ -438,19 +437,92 @@ export default function DashboardScreen() {
             { color: colors.textSecondary },
           ]}
         >
-          Overall attendance over time
+          Your attendance by category
         </Text>
+      </View>
+
+      <View style={styles.statsGrid}>
+        {renderStatCard(
+          "Theory",
+          `${theoryStats.percentage.toFixed(1)}%`,
+          `${theoryStats.attendedTheory}/${theoryStats.totalTheory} attended`,
+          "#3B82F6",
+          "📘"
+        )}
+
+        {renderStatCard(
+          "Labs",
+          `${labStats.percentage.toFixed(1)}%`,
+          `${labStats.attendedLabs}/${labStats.totalLabs} attended`,
+          "#A855F7",
+          "🧪"
+        )}
+
+        {renderStatCard(
+          "Club",
+          `${clubClasses}`,
+          "Classes recorded",
+          "#0EA5E9",
+          "🎓"
+        )}
+      </View>
+
+      {/* ATTENDANCE TREND */}
+
+      <View
+        style={[
+          styles.chartCard,
+          {
+            backgroundColor: colors.card,
+            borderColor: colors.border,
+          },
+        ]}
+      >
+        <View style={styles.sectionHeaderRow}>
+          <View>
+            <Text
+              style={[
+                styles.sectionTitle,
+                { color: colors.text },
+              ]}
+            >
+              Attendance Trend
+            </Text>
+
+            <Text
+              style={[
+                styles.sectionSubtitle,
+                { color: colors.textSecondary },
+              ]}
+            >
+              How your attendance changes over time
+            </Text>
+          </View>
+
+          <Text style={styles.chartEmoji}>📈</Text>
+        </View>
 
         {trend.length < 2 ? (
           <View style={styles.emptyTrend}>
+            <Text style={styles.emptyTrendEmoji}>📉</Text>
+
+            <Text
+              style={[
+                styles.emptyTitle,
+                { color: colors.text },
+              ]}
+            >
+              Not enough data yet
+            </Text>
+
             <Text
               style={[
                 styles.emptyText,
                 { color: colors.textSecondary },
               ]}
             >
-              Mark attendance for at least 2 dates
-              to see your trend.
+              Mark attendance on at least two different
+              dates to see your progress.
             </Text>
           </View>
         ) : (
@@ -460,112 +532,40 @@ export default function DashboardScreen() {
               height={chartHeight}
               viewBox={`0 0 ${chartWidth} ${chartHeight}`}
             >
-              {/* 100% */}
+              {/* GRID LINES */}
 
-              <Line
-                x1={graphLeft}
-                y1={getY(100)}
-                x2={graphRight}
-                y2={getY(100)}
-                stroke={colors.border}
-                strokeWidth="1"
-              />
-
-              {/* 75% */}
-
-              <Line
-                x1={graphLeft}
-                y1={getY(75)}
-                x2={graphRight}
-                y2={getY(75)}
-                stroke={colors.border}
-                strokeWidth="1"
-              />
-
-              {/* 50% */}
-
-              <Line
-                x1={graphLeft}
-                y1={getY(50)}
-                x2={graphRight}
-                y2={getY(50)}
-                stroke={colors.border}
-                strokeWidth="1"
-              />
-
-              {/* 25% */}
-
-              <Line
-                x1={graphLeft}
-                y1={getY(25)}
-                x2={graphRight}
-                y2={getY(25)}
-                stroke={colors.border}
-                strokeWidth="1"
-              />
-
-              {/* 0% */}
-
-              <Line
-                x1={graphLeft}
-                y1={getY(0)}
-                x2={graphRight}
-                y2={getY(0)}
-                stroke={colors.border}
-                strokeWidth="1"
-              />
+              {[100, 75, 50, 25, 0].map((value) => (
+                <Line
+                  key={value}
+                  x1={graphLeft}
+                  y1={getY(value)}
+                  x2={graphRight}
+                  y2={getY(value)}
+                  stroke={colors.border}
+                  strokeWidth="1"
+                  strokeDasharray="4 4"
+                />
+              ))}
 
               {/* Y AXIS LABELS */}
 
-              <SvgText
-                x="4"
-                y={getY(100) + 4}
-                fill={colors.textSecondary}
-                fontSize="10"
-              >
-                100%
-              </SvgText>
-
-              <SvgText
-                x="9"
-                y={getY(75) + 4}
-                fill={colors.textSecondary}
-                fontSize="10"
-              >
-                75%
-              </SvgText>
-
-              <SvgText
-                x="9"
-                y={getY(50) + 4}
-                fill={colors.textSecondary}
-                fontSize="10"
-              >
-                50%
-              </SvgText>
-
-              <SvgText
-                x="9"
-                y={getY(25) + 4}
-                fill={colors.textSecondary}
-                fontSize="10"
-              >
-                25%
-              </SvgText>
-
-              <SvgText
-                x="14"
-                y={getY(0) + 4}
-                fill={colors.textSecondary}
-                fontSize="10"
-              >
-                0%
-              </SvgText>
+              {[100, 75, 50, 25, 0].map((value) => (
+                <SvgText
+                  key={`label-${value}`}
+                  x="4"
+                  y={getY(value) + 4}
+                  fill={colors.textSecondary}
+                  fontSize="10"
+                >
+                  {value}%
+                </SvgText>
+              ))}
 
               {/* TREND LINE */}
 
               {trend.slice(1).map((item, index) => {
                 const previous = trend[index];
+
                 const segmentPercentage =
                   (previous.percentage + item.percentage) / 2;
 
@@ -587,24 +587,19 @@ export default function DashboardScreen() {
 
               {/* DATA POINTS */}
 
-              {trend.map((item, index) => {
-                const x = getX(index);
-                const y = getY(item.percentage);
+              {trend.map((item, index) => (
+                <Circle
+                  key={item.date}
+                  cx={getX(index)}
+                  cy={getY(item.percentage)}
+                  r="4"
+                  fill={getAttendanceColor(item.percentage)}
+                  stroke={colors.card}
+                  strokeWidth="2"
+                />
+              ))}
 
-                return (
-                  <Circle
-                    key={item.date}
-                    cx={x}
-                    cy={y}
-                    r="4"
-                    fill={getAttendanceColor(
-                      item.percentage
-                    )}
-                  />
-                );
-              })}
-
-              {/* FIRST DATE */}
+              {/* DATE LABELS */}
 
               <SvgText
                 x={getX(0)}
@@ -615,8 +610,6 @@ export default function DashboardScreen() {
               >
                 {trend[0].date.slice(5)}
               </SvgText>
-
-              {/* LAST DATE */}
 
               <SvgText
                 x={getX(trend.length - 1)}
@@ -634,17 +627,43 @@ export default function DashboardScreen() {
 
       {/* SUBJECT ATTENDANCE */}
 
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: colors.text,
-            marginTop: 10,
-          },
-        ]}
-      >
-        Subject Attendance
-      </Text>
+      <View style={styles.subjectSectionHeader}>
+        <View>
+          <Text
+            style={[
+              styles.sectionTitle,
+              { color: colors.text },
+            ]}
+          >
+            Subject Attendance
+          </Text>
+
+          <Text
+            style={[
+              styles.sectionSubtitle,
+              { color: colors.textSecondary },
+            ]}
+          >
+            Tap a subject to view its breakdown
+          </Text>
+        </View>
+
+        <View
+          style={[
+            styles.subjectCount,
+            { backgroundColor: `${colors.primary}18` },
+          ]}
+        >
+          <Text
+            style={[
+              styles.subjectCountText,
+              { color: colors.primary },
+            ]}
+          >
+            {subjects.length}
+          </Text>
+        </View>
+      </View>
 
       {subjectData.map((subject) => {
         const isExpanded =
@@ -662,19 +681,24 @@ export default function DashboardScreen() {
             subject.totalClasses
           );
 
+        const attendanceColor = getAttendanceColor(
+          subject.percentage
+        );
+
         return (
           <Pressable
-            key={subject.name}
+            key={subject.id ?? subject.name}
             onPress={() =>
               setExpandedSubject(
                 isExpanded ? null : subject.name
               )
             }
-            style={[
+            style={({ pressed }) => [
               styles.subjectCard,
               {
                 backgroundColor: colors.card,
                 borderColor: colors.border,
+                opacity: pressed ? 0.92 : 1,
               },
             ]}
           >
@@ -698,209 +722,104 @@ export default function DashboardScreen() {
                   ]}
                 >
                   {subject.totalAttended} /{" "}
-                  {subject.totalClasses} classes
+                  {subject.totalClasses} classes attended
                 </Text>
               </View>
 
-              <Text
-                style={[
-                  styles.subjectPercentage,
-                  {
-                    color: getAttendanceColor(
-                      subject.percentage
-                    ),
-                  },
-                ]}
-              >
-                {subject.percentage.toFixed(1)}%
-              </Text>
-            </View>
-
-            {/* PROGRESS BAR */}
-
-            <View
-              style={[
-                styles.progressBackground,
-                {
-                  backgroundColor: colors.cardSecondary,
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: `${Math.min(
-                      subject.percentage,
-                      100
-                    )}%`,
-                    backgroundColor: getAttendanceColor(
-                      subject.percentage
-                    ),
-                  },
-                ]}
-              />
-            </View>
-
-            {/* WARNINGS */}
-
-            {subject.percentage <= 75 &&
-              subject.percentage >= 50 && (
+              <View style={styles.subjectRight}>
                 <Text
                   style={[
-                    styles.warning,
-                    { color: colors.leftEarly },
+                    styles.subjectPercentage,
+                    { color: attendanceColor },
                   ]}
                 >
-                  ⚠️ Attendance below 75%
+                  {subject.percentage.toFixed(1)}%
                 </Text>
-              )}
 
-            {subject.percentage < 50 &&
-              subject.totalClasses > 0 && (
                 <Text
                   style={[
-                    styles.warning,
-                    { color: colors.absent },
+                    styles.expandIcon,
+                    { color: colors.textSecondary },
                   ]}
                 >
-                  🚨 Attendance critically low
+                  {isExpanded ? "⌃" : "⌄"}
                 </Text>
-              )}
+              </View>
+            </View>
 
-            {/* ATTENDANCE GUIDANCE */}
+            {/* PROGRESS */}
+
+            {renderProgressBar(subject.percentage, 8)}
+
+            {/* STATUS */}
 
             {subject.totalClasses > 0 &&
               subject.percentage < 75 && (
-                <View
-                  style={[
-                    styles.guidanceBox,
-                    {
-                      backgroundColor: colors.cardSecondary,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.guidanceTitle,
-                      {
-                        color: colors.text,
-                      },
-                    ]}
-                  >
-                    📈 Attendance Recovery
+                <View style={styles.warningRow}>
+                  <Text style={styles.warningEmoji}>
+                    {subject.percentage < 50 ? "🚨" : "⚠️"}
                   </Text>
 
                   <Text
                     style={[
-                      styles.guidanceText,
+                      styles.warning,
                       {
-                        color: colors.textSecondary,
+                        color:
+                          subject.percentage < 50
+                            ? "#EF4444"
+                            : "#F97316",
                       },
                     ]}
                   >
-                    Attend{" "}
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontWeight: "700",
-                      }}
-                    >
-                      {classesNeededFor75}
-                    </Text>{" "}
-                    more{" "}
-                    {classesNeededFor75 === 1
-                      ? "class"
-                      : "classes"}{" "}
-                    to reach 75%.
+                    {subject.percentage < 50
+                      ? "Attendance critically low"
+                      : "Attendance below 75%"}
                   </Text>
                 </View>
               )}
 
-            {subject.totalClasses > 0 &&
-              subject.percentage >= 75 && (
-                <View
-                  style={[
-                    styles.guidanceBox,
-                    {
-                      backgroundColor: colors.cardSecondary,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.guidanceTitle,
-                      {
-                        color: colors.text,
-                      },
-                    ]}
-                  >
-                    🛡️ Attendance Safe
-                  </Text>
-
-                  <Text
-                    style={[
-                      styles.guidanceText,
-                      {
-                        color: colors.textSecondary,
-                      },
-                    ]}
-                  >
-                    You can miss{" "}
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontWeight: "700",
-                      }}
-                    >
-                      {classesCanMiss}
-                    </Text>{" "}
-                    more{" "}
-                    {classesCanMiss === 1
-                      ? "class"
-                      : "classes"}{" "}
-                    and stay at or above 75%.
-                  </Text>
-                </View>
-              )}
-
-            {/* EXPANDED DETAILS */}
+            {/* EXPANDED CONTENT */}
 
             {isExpanded && (
               <View
                 style={[
                   styles.detailsContainer,
-                  {
-                    borderTopColor: colors.border,
-                  },
+                  { borderTopColor: colors.border },
                 ]}
               >
                 {/* THEORY */}
 
                 <View style={styles.detailRow}>
-                  <View>
-                    <Text
+                  <View style={styles.detailLeft}>
+                    <View
                       style={[
-                        styles.detailTitle,
-                        { color: colors.text },
+                        styles.detailIcon,
+                        { backgroundColor: "#3B82F618" },
                       ]}
                     >
-                      Theory
-                    </Text>
+                      <Text>📘</Text>
+                    </View>
 
-                    <Text
-                      style={[
-                        styles.detailText,
-                        {
-                          color: colors.textSecondary,
-                        },
-                      ]}
-                    >
-                      {subject.theory.attendedClasses}{" "}
-                      /{" "}
-                      {subject.theory.totalClasses}{" "}
-                      attended
-                    </Text>
+                    <View>
+                      <Text
+                        style={[
+                          styles.detailTitle,
+                          { color: colors.text },
+                        ]}
+                      >
+                        Theory
+                      </Text>
+
+                      <Text
+                        style={[
+                          styles.detailText,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
+                        {subject.theory.attendedClasses} /{" "}
+                        {subject.theory.totalClasses} attended
+                      </Text>
+                    </View>
                   </View>
 
                   <Text
@@ -921,29 +840,36 @@ export default function DashboardScreen() {
 
                 {subject.lab && (
                   <View style={styles.detailRow}>
-                    <View>
-                      <Text
+                    <View style={styles.detailLeft}>
+                      <View
                         style={[
-                          styles.detailTitle,
-                          { color: colors.text },
+                          styles.detailIcon,
+                          { backgroundColor: "#A855F718" },
                         ]}
                       >
-                        Lab
-                      </Text>
+                        <Text>🧪</Text>
+                      </View>
 
-                      <Text
-                        style={[
-                          styles.detailText,
-                          {
-                            color: colors.textSecondary,
-                          },
-                        ]}
-                      >
-                        {subject.lab.attendedClasses}{" "}
-                        /{" "}
-                        {subject.lab.totalClasses}{" "}
-                        attended
-                      </Text>
+                      <View>
+                        <Text
+                          style={[
+                            styles.detailTitle,
+                            { color: colors.text },
+                          ]}
+                        >
+                          Lab
+                        </Text>
+
+                        <Text
+                          style={[
+                            styles.detailText,
+                            { color: colors.textSecondary },
+                          ]}
+                        >
+                          {subject.lab.attendedClasses} /{" "}
+                          {subject.lab.totalClasses} attended
+                        </Text>
+                      </View>
                     </View>
 
                     <Text
@@ -965,26 +891,35 @@ export default function DashboardScreen() {
 
                 {subject.theory.clubClasses > 0 && (
                   <View style={styles.detailRow}>
-                    <View>
-                      <Text
+                    <View style={styles.detailLeft}>
+                      <View
                         style={[
-                          styles.detailTitle,
-                          { color: colors.text },
+                          styles.detailIcon,
+                          { backgroundColor: "#0EA5E918" },
                         ]}
                       >
-                        Club / Seminar
-                      </Text>
+                        <Text>🎓</Text>
+                      </View>
 
-                      <Text
-                        style={[
-                          styles.detailText,
-                          {
-                            color: colors.textSecondary,
-                          },
-                        ]}
-                      >
-                        Not counted toward attendance
-                      </Text>
+                      <View>
+                        <Text
+                          style={[
+                            styles.detailTitle,
+                            { color: colors.text },
+                          ]}
+                        >
+                          Club / Seminar
+                        </Text>
+
+                        <Text
+                          style={[
+                            styles.detailText,
+                            { color: colors.textSecondary },
+                          ]}
+                        >
+                          Not counted toward attendance
+                        </Text>
+                      </View>
                     </View>
 
                     <Text
@@ -995,6 +930,99 @@ export default function DashboardScreen() {
                     >
                       {subject.theory.clubClasses}
                     </Text>
+                  </View>
+                )}
+
+                {/* ATTENDANCE GUIDANCE */}
+
+                {subject.totalClasses > 0 && (
+                  <View
+                    style={[
+                      styles.guidanceBox,
+                      {
+                        backgroundColor: colors.cardSecondary,
+                      },
+                    ]}
+                  >
+                    {subject.percentage < 75 ? (
+                      <>
+                        <View style={styles.guidanceHeader}>
+                          <Text style={styles.guidanceEmoji}>
+                            📈
+                          </Text>
+
+                          <Text
+                            style={[
+                              styles.guidanceTitle,
+                              { color: colors.text },
+                            ]}
+                          >
+                            Attendance Recovery
+                          </Text>
+                        </View>
+
+                        <Text
+                          style={[
+                            styles.guidanceText,
+                            { color: colors.textSecondary },
+                          ]}
+                        >
+                          Attend{" "}
+                          <Text
+                            style={[
+                              styles.guidanceHighlight,
+                              { color: colors.text },
+                            ]}
+                          >
+                            {classesNeededFor75}
+                          </Text>{" "}
+                          more{" "}
+                          {classesNeededFor75 === 1
+                            ? "class"
+                            : "classes"}{" "}
+                          consecutively to reach 75%.
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.guidanceHeader}>
+                          <Text style={styles.guidanceEmoji}>
+                            🛡️
+                          </Text>
+
+                          <Text
+                            style={[
+                              styles.guidanceTitle,
+                              { color: colors.text },
+                            ]}
+                          >
+                            Attendance Safe
+                          </Text>
+                        </View>
+
+                        <Text
+                          style={[
+                            styles.guidanceText,
+                            { color: colors.textSecondary },
+                          ]}
+                        >
+                          You can miss{" "}
+                          <Text
+                            style={[
+                              styles.guidanceHighlight,
+                              { color: colors.text },
+                            ]}
+                          >
+                            {classesCanMiss}
+                          </Text>{" "}
+                          more{" "}
+                          {classesCanMiss === 1
+                            ? "class"
+                            : "classes"}{" "}
+                          and stay at or above 75%.
+                        </Text>
+                      </>
+                    )}
                   </View>
                 )}
               </View>
@@ -1015,14 +1043,25 @@ export default function DashboardScreen() {
             },
           ]}
         >
+          <Text style={styles.emptySubjectEmoji}>📚</Text>
+
+          <Text
+            style={[
+              styles.emptyTitle,
+              { color: colors.text },
+            ]}
+          >
+            No subjects assigned
+          </Text>
+
           <Text
             style={[
               styles.emptyText,
               { color: colors.textSecondary },
             ]}
           >
-            Add subjects from the Subjects tab to
-            start tracking attendance.
+            Your assigned subjects will appear here once
+            they are added by your administrator.
           </Text>
         </View>
       )}
@@ -1030,178 +1069,397 @@ export default function DashboardScreen() {
   );
 }
 
+// --------------------------------------------------
+// STYLES
+// --------------------------------------------------
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+
   content: {
-    padding: 20,
     paddingBottom: 40,
   },
+
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 23,
+  },
+
+  eyebrow: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.4,
+    marginBottom: 7,
+  },
+
   title: {
-    fontSize: 30,
-    fontWeight: "700",
-    marginTop: 10,
+    fontSize: 32,
+    fontWeight: "800",
+    letterSpacing: -0.8,
   },
+
   subtitle: {
-    fontSize: 15,
-    marginTop: 4,
-    marginBottom: 20,
+    fontSize: 12,
+    marginTop: 6,
   },
-  overallCard: {
+
+  headerIcon: {
+    width: 54,
+    height: 54,
     borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 12,
+  },
+
+  headerEmoji: {
+    fontSize: 25,
+  },
+
+  overallCard: {
+    borderRadius: 23,
     padding: 20,
     borderWidth: 1,
-    marginBottom: 12,
+    marginBottom: 26,
   },
-  card: {
-    borderRadius: 18,
-    padding: 18,
-    borderWidth: 1,
-    marginBottom: 16,
-  },
-  cardLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  overallPercentage: {
-    fontSize: 42,
-    fontWeight: "700",
-    marginTop: 5,
-  },
-  cardSubText: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-  statsRow: {
+
+  overallTopRow: {
     flexDirection: "row",
-    gap: 10,
-    marginBottom: 16,
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  smallCard: {
-    flex: 1,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
+
+  cardLabel: {
+    fontSize: 13,
+    fontWeight: "600",
   },
-  smallCardTitle: {
+
+  overallPercentage: {
+    fontSize: 43,
+    fontWeight: "800",
+    letterSpacing: -1,
+    marginTop: 7,
+  },
+
+  overallIcon: {
+    width: 53,
+    height: 53,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  overallEmoji: {
+    fontSize: 25,
+  },
+
+  cardSubText: {
     fontSize: 12,
-    fontWeight: "500",
+    marginTop: 3,
   },
-  smallPercentage: {
-    fontSize: 22,
-    fontWeight: "700",
-    marginTop: 4,
-  },
-  smallCardText: {
-    fontSize: 11,
-    marginTop: 2,
-  },
+
   progressBackground: {
-    height: 8,
-    borderRadius: 10,
+    width: "100%",
+    borderRadius: 20,
     overflow: "hidden",
-    marginTop: 14,
+    marginTop: 16,
   },
+
   progressFill: {
     height: "100%",
-    borderRadius: 10,
+    borderRadius: 20,
   },
+
+  progressFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 10,
+  },
+
+  progressFooterText: {
+    fontSize: 10,
+  },
+
+  targetText: {
+    fontSize: 10,
+    fontWeight: "800",
+  },
+
+  sectionHeader: {
+    marginBottom: 14,
+  },
+
   sectionTitle: {
-    fontSize: 21,
-    fontWeight: "700",
-    marginBottom: 4,
+    fontSize: 19,
+    fontWeight: "800",
+    letterSpacing: -0.3,
   },
+
   sectionSubtitle: {
-    fontSize: 13,
-    marginBottom: 10,
-  },
-  chartWrapper: {
-    width: "100%",
+    fontSize: 11,
     marginTop: 5,
+  },
+
+  statsGrid: {
+    flexDirection: "row",
+    gap: 9,
+    marginBottom: 25,
+  },
+
+  statCard: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 17,
+    borderWidth: 1,
+    padding: 11,
+  },
+
+  statIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+
+  statEmoji: {
+    fontSize: 16,
+  },
+
+  statLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+
+  statValue: {
+    fontSize: 19,
+    fontWeight: "800",
+    marginTop: 5,
+  },
+
+  statDescription: {
+    fontSize: 9,
+    marginTop: 5,
+    lineHeight: 13,
+  },
+
+  chartCard: {
+    borderRadius: 22,
+    padding: 17,
+    borderWidth: 1,
+    marginBottom: 27,
+  },
+
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
   },
+
+  chartEmoji: {
+    fontSize: 23,
+  },
+
+  chartWrapper: {
+    width: "100%",
+    marginTop: 13,
+    alignItems: "center",
+  },
+
   emptyTrend: {
-    paddingVertical: 25,
+    alignItems: "center",
+    paddingVertical: 30,
+    paddingHorizontal: 15,
   },
-  emptyText: {
-    fontSize: 14,
+
+  emptyTrendEmoji: {
+    fontSize: 30,
+    marginBottom: 12,
+  },
+
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: "800",
     textAlign: "center",
-    lineHeight: 20,
   },
+
+  emptyText: {
+    fontSize: 11,
+    textAlign: "center",
+    lineHeight: 18,
+    marginTop: 7,
+  },
+
+  subjectSectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+
+  subjectCount: {
+    minWidth: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+  },
+
+  subjectCountText: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
   subjectCard: {
-    borderRadius: 18,
-    padding: 18,
+    borderRadius: 20,
+    padding: 17,
     borderWidth: 1,
     marginTop: 12,
   },
+
   subjectHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
+
   subjectTitleContainer: {
     flex: 1,
     paddingRight: 10,
   },
+
   subjectName: {
-    fontSize: 17,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "800",
+    lineHeight: 21,
   },
+
   subjectClasses: {
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: 11,
+    marginTop: 5,
   },
+
+  subjectRight: {
+    alignItems: "flex-end",
+    marginLeft: 8,
+  },
+
   subjectPercentage: {
-    fontSize: 20,
+    fontSize: 19,
+    fontWeight: "800",
+  },
+
+  expandIcon: {
+    fontSize: 19,
     fontWeight: "700",
+    marginTop: 2,
   },
-  warning: {
-    fontSize: 12,
-    fontWeight: "600",
-    marginTop: 10,
-  },
-  guidanceBox: {
-    borderRadius: 12,
-    padding: 12,
+
+  warningRow: {
+    flexDirection: "row",
+    alignItems: "center",
     marginTop: 12,
   },
-  guidanceTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  guidanceText: {
+
+  warningEmoji: {
     fontSize: 12,
-    marginTop: 4,
-    lineHeight: 18,
+    marginRight: 6,
   },
+
+  warning: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
   detailsContainer: {
     marginTop: 16,
-    paddingTop: 14,
+    paddingTop: 12,
     borderTopWidth: 1,
   },
+
   detailRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 9,
+    paddingVertical: 10,
   },
+
+  detailLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  detailIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+
   detailTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  detailText: {
     fontSize: 12,
-    marginTop: 3,
+    fontWeight: "800",
   },
+
+  detailText: {
+    fontSize: 10,
+    marginTop: 4,
+  },
+
   detailPercentage: {
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "800",
   },
+
+  guidanceBox: {
+    borderRadius: 14,
+    padding: 13,
+    marginTop: 12,
+  },
+
+  guidanceHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  guidanceEmoji: {
+    fontSize: 15,
+    marginRight: 7,
+  },
+
+  guidanceTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  guidanceText: {
+    fontSize: 11,
+    marginTop: 7,
+    lineHeight: 18,
+  },
+
+  guidanceHighlight: {
+    fontWeight: "800",
+  },
+
   emptyCard: {
-    borderRadius: 18,
+    borderRadius: 19,
     padding: 25,
     borderWidth: 1,
-    marginTop: 12,
+    marginTop: 13,
+    alignItems: "center",
+  },
+
+  emptySubjectEmoji: {
+    fontSize: 32,
+    marginBottom: 12,
   },
 });
