@@ -13,7 +13,6 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 
-// Settings category type
 type SettingsItem = {
   title: string;
   description: string;
@@ -22,7 +21,6 @@ type SettingsItem = {
   background: string;
 };
 
-// Settings categories
 const settingsItems: SettingsItem[] = [
   {
     title: "Academic Configuration",
@@ -35,34 +33,10 @@ const settingsItems: SettingsItem[] = [
   {
     title: "Attendance Settings",
     description:
-      "Configure attendance thresholds, marking rules and correction permissions.",
+      "Configure department attendance thresholds and closing time.",
     icon: "✓",
     color: "#16A34A",
     background: "#DCFCE7",
-  },
-  {
-    title: "Notifications",
-    description:
-      "Manage attendance alerts, assignment reminders and announcements.",
-    icon: "♧",
-    color: "#D97706",
-    background: "#FEF3C7",
-  },
-  {
-    title: "Security & Permissions",
-    description:
-      "Control role permissions and manage account access.",
-    icon: "◇",
-    color: "#7C3AED",
-    background: "#EDE9FE",
-  },
-  {
-    title: "Data Management",
-    description:
-      "Export records, configure backups and manage data retention.",
-    icon: "▤",
-    color: "#E11D48",
-    background: "#FFE4E6",
   },
   {
     title: "Account & Profile",
@@ -80,11 +54,9 @@ export default function AdminSettings() {
 
   const styles = createStyles(colors, isDark);
 
-  // Admin name
   const adminName =
     user?.user_metadata?.full_name ?? "Admin";
 
-  // Profile information
   const handleProfile = () => {
     Alert.alert(
       "Admin Profile",
@@ -103,7 +75,6 @@ export default function AdminSettings() {
     );
   };
 
-  // Sign out confirmation
   const handleSignOut = () => {
     Alert.alert(
       "Sign Out",
@@ -131,30 +102,19 @@ export default function AdminSettings() {
     );
   };
 
-  // Notification button
-  const handleNotifications = () => {
-    Alert.alert(
-      "Notifications",
-      "Administrative notifications will appear here."
-    );
-  };
-
-  // Settings category navigation
   const handleSettingsPress = (title: string) => {
     switch (title) {
       case "Academic Configuration":
         router.push("/admin-settings/academic");
         break;
 
+      case "Attendance Settings":
+        router.push("/admin-settings/attendance");
+        break;
+
       case "Account & Profile":
         handleProfile();
         break;
-
-      default:
-        Alert.alert(
-          title,
-          `${title} configuration will be available here.`
-        );
     }
   };
 
@@ -181,17 +141,6 @@ export default function AdminSettings() {
               </Text>
             </View>
           </View>
-
-          {/* Notification button only */}
-          <View style={styles.headerActions}>
-            <Pressable
-              style={styles.headerButton}
-              onPress={handleNotifications}
-            >
-              <Text style={styles.headerIcon}>♧</Text>
-              <View style={styles.notificationDot} />
-            </Pressable>
-          </View>
         </View>
 
         {/* Page Heading */}
@@ -201,7 +150,7 @@ export default function AdminSettings() {
           </Text>
 
           <Text style={styles.subheading}>
-            Manage system configuration and preferences
+            Manage academic and attendance configuration
           </Text>
         </View>
 
@@ -298,7 +247,6 @@ const createStyles = (
       paddingBottom: 30,
     },
 
-    // Header
     header: {
       flexDirection: "row",
       justifyContent: "space-between",
@@ -343,39 +291,6 @@ const createStyles = (
       marginTop: 2,
     },
 
-    headerActions: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 12,
-    },
-
-    headerButton: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: colors.card,
-      justifyContent: "center",
-      alignItems: "center",
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-
-    headerIcon: {
-      fontSize: 25,
-      color: colors.text,
-    },
-
-    notificationDot: {
-      position: "absolute",
-      width: 9,
-      height: 9,
-      borderRadius: 5,
-      backgroundColor: colors.absent,
-      top: 8,
-      right: 9,
-    },
-
-    // Heading
     headingContainer: {
       marginBottom: 28,
     },
@@ -393,7 +308,6 @@ const createStyles = (
       color: colors.textSecondary,
     },
 
-    // Settings cards
     settingsContainer: {
       gap: 14,
     },
@@ -451,7 +365,6 @@ const createStyles = (
       marginLeft: 2,
     },
 
-    // Information card
     infoCard: {
       flexDirection: "row",
       alignItems: "center",
@@ -492,7 +405,6 @@ const createStyles = (
       color: colors.textSecondary,
     },
 
-    // Footer
     footer: {
       textAlign: "center",
       fontSize: 12,

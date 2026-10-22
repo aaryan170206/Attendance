@@ -8,6 +8,7 @@ import {
 
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -29,9 +30,13 @@ import {
 } from "@/services/teacherClasses";
 
 import {
+  AttendanceSession,
+  closeAttendanceSession,
   correctAttendance,
+  getAttendanceSession,
   getCorrectionHistory,
   getTodayTeacherAttendance,
+  openAttendanceSession,
   TeacherAttendanceRecord,
   TeacherCorrectionHistoryRecord,
 } from "@/services/teacherAttendance";
@@ -136,6 +141,26 @@ export default function TeacherAttendance() {
   const [attendanceError, setAttendanceError] =
     useState<string | null>(null);
 
+  const [theorySession, setTheorySession] =
+    useState<AttendanceSession | null>(null);
+
+  const [labSession, setLabSession] =
+    useState<AttendanceSession | null>(null);
+
+  const [theorySessionError, setTheorySessionError] =
+    useState<string | null>(null);
+
+  const [labSessionError, setLabSessionError] =
+    useState<string | null>(null);
+
+  const [sessionLoading, setSessionLoading] = useState(false);
+
+  const [openingSessionType, setOpeningSessionType] =
+    useState<"theory" | "lab" | null>(null);
+
+  const [closingSessionType, setClosingSessionType] =
+    useState<"theory" | "lab" | null>(null);
+
   const [correctionHistory, setCorrectionHistory] =
     useState<TeacherCorrectionHistoryRecord[]>([]);
 
@@ -185,6 +210,10 @@ export default function TeacherAttendance() {
       setAttendance([]);
       setStudents([]);
       setCorrectionHistory([]);
+      setTheorySession(null);
+      setLabSession(null);
+      setTheorySessionError(null);
+      setLabSessionError(null);
       setSelectedAttendance(null);
     }
   }, []);
@@ -207,10 +236,15 @@ export default function TeacherAttendance() {
       setAttendance([]);
       setStudents([]);
       setCorrectionHistory([]);
+      setTheorySession(null);
+      setLabSession(null);
       setAttendanceError(null);
       setHistoryError(null);
+      setTheorySessionError(null);
+      setLabSessionError(null);
       setAttendanceLoading(false);
       setHistoryLoading(false);
+      setSessionLoading(false);
       return;
     }
 
@@ -222,11 +256,17 @@ export default function TeacherAttendance() {
     setHistoryError(null);
     setCorrectionHistory([]);
 
+    setSessionLoading(true);
+    setTheorySessionError(null);
+    setLabSessionError(null);
+
     try {
       const [
         attendanceResult,
         studentsResult,
         historyResult,
+        theorySessionResult,
+        labSessionResult,
       ] = await Promise.all([
         getTodayTeacherAttendance(
           selectedClassId,
@@ -238,6 +278,18 @@ export default function TeacherAttendance() {
           selectedClassId,
           selectedSubjectId,
           selectedDate
+        ),
+        getAttendanceSession(
+          selectedClassId,
+          selectedSubjectId,
+          selectedDate,
+          "theory"
+        ),
+        getAttendanceSession(
+          selectedClassId,
+          selectedSubjectId,
+          selectedDate,
+          "lab"
         ),
       ]);
 
@@ -262,6 +314,20 @@ export default function TeacherAttendance() {
       } else {
         setCorrectionHistory(historyResult.data ?? []);
       }
+
+      if (theorySessionResult.error) {
+        setTheorySession(null);
+        setTheorySessionError(theorySessionResult.error.message);
+      } else {
+        setTheorySession(theorySessionResult.data);
+      }
+
+      if (labSessionResult.error) {
+        setLabSession(null);
+        setLabSessionError(labSessionResult.error.message);
+      } else {
+        setLabSession(labSessionResult.data);
+      }
     } catch (err) {
       if (requestId !== attendanceRequestId.current) {
         return;
@@ -276,6 +342,7 @@ export default function TeacherAttendance() {
       if (requestId === attendanceRequestId.current) {
         setAttendanceLoading(false);
         setHistoryLoading(false);
+        setSessionLoading(false);
       }
     }
   }, [selectedClassId, selectedSubjectId, selectedDate]);
@@ -330,6 +397,10 @@ export default function TeacherAttendance() {
         setAttendance([]);
         setStudents([]);
         setCorrectionHistory([]);
+        setTheorySession(null);
+        setLabSession(null);
+        setTheorySessionError(null);
+        setLabSessionError(null);
         return null;
       }
 
@@ -337,6 +408,10 @@ export default function TeacherAttendance() {
       setAttendance([]);
       setStudents([]);
       setCorrectionHistory([]);
+      setTheorySession(null);
+      setLabSession(null);
+      setTheorySessionError(null);
+      setLabSessionError(null);
 
       return classId;
     });
@@ -352,15 +427,148 @@ export default function TeacherAttendance() {
         setAttendance([]);
         setStudents([]);
         setCorrectionHistory([]);
+        setTheorySession(null);
+        setLabSession(null);
+        setTheorySessionError(null);
+        setLabSessionError(null);
         return null;
       }
 
       setAttendance([]);
       setStudents([]);
       setCorrectionHistory([]);
+      setTheorySession(null);
+      setLabSession(null);
+      setTheorySessionError(null);
+      setLabSessionError(null);
 
       return subjectId;
     });
+  };
+
+  // OPEN THEORY OR LAB ATTENDANCE SESSION
+
+  const handleOpenSession = async (
+    type: "theory" | "lab"
+  ) => {
+    if (!selectedSubjectId || selectedDate !== today) {
+      return;
+    }
+
+    const existingSession =
+      type === "theory" ? theorySession : labSession;
+
+    const lookupError =
+      type === "theory" ? theorySessionError : labSessionError;
+
+    if (existingSession || lookupError) {
+      return;
+    }
+
+    setOpeningSessionType(type);
+    closeCorrection();
+
+    if (!selectedClassId || !selectedSubjectId) {
+      return;
+    }
+
+    try {
+      const result = await openAttendanceSession(
+        selectedClassId,
+        selectedSubjectId,
+        type
+      );
+
+      if (result.error) {
+        if (type === "theory") {
+          setTheorySessionError(result.error.message);
+        } else {
+          setLabSessionError(result.error.message);
+        }
+        return;
+      }
+
+      if (!result.data) {
+        const message = "The attendance session could not be opened.";
+
+        if (type === "theory") {
+          setTheorySessionError(message);
+        } else {
+          setLabSessionError(message);
+        }
+        return;
+      }
+
+      await loadAttendance();
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Unable to open attendance session.";
+
+      if (type === "theory") {
+        setTheorySessionError(message);
+      } else {
+        setLabSessionError(message);
+      }
+    } finally {
+      setOpeningSessionType(null);
+    }
+  };
+
+
+  // CLOSE THEORY OR LAB ATTENDANCE SESSION
+
+  const handleCloseSession = (type: "theory" | "lab") => {
+    const session = type === "theory" ? theorySession : labSession;
+
+    if (!session || session.status !== "open") {
+      return;
+    }
+
+    const sessionLabel = type === "theory" ? "Theory" : "Lab";
+
+    Alert.alert(
+      "Close Attendance Session?",
+      `Are you sure you want to close the ${sessionLabel} attendance session? Students will no longer be able to submit attendance, and teacher corrections will be locked for this session.`,
+      [
+        {
+          text: "Keep Open",
+          style: "cancel",
+        },
+        {
+          text: "Close Session",
+          style: "destructive",
+          onPress: async () => {
+            setClosingSessionType(type);
+            closeCorrection();
+
+            try {
+              const result = await closeAttendanceSession(session.id);
+
+              if (result.error) {
+                throw result.error;
+              }
+
+              await loadAttendance();
+            } catch (err) {
+              const message =
+                err instanceof Error
+                  ? err.message
+                  : "Unable to close attendance session.";
+
+              if (type === "theory") {
+                setTheorySessionError(message);
+              } else {
+                setLabSessionError(message);
+              }
+            } finally {
+              setClosingSessionType(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   // STUDENT CORRECTION SELECTION
@@ -370,7 +578,20 @@ export default function TeacherAttendance() {
     type: "theory" | "lab",
     studentId: string
   ) => {
-    if (!record) return;
+    if (!record || record.status === "pending" || !record.session_id) {
+      return;
+    }
+
+    const session =
+      type === "theory" ? theorySession : labSession;
+
+    if (
+      selectedDate !== today ||
+      !session ||
+      session.status !== "open"
+    ) {
+      return;
+    }
 
     if (selectedAttendance?.attendanceId === record.id) {
       closeCorrection();
@@ -402,6 +623,22 @@ export default function TeacherAttendance() {
     if (!reason.trim()) {
       setCorrectionError(
         "Please enter a correction reason."
+      );
+      return;
+    }
+
+    const selectedSession =
+      selectedAttendance.type === "theory"
+        ? theorySession
+        : labSession;
+
+    if (
+      selectedDate !== today ||
+      !selectedSession ||
+      selectedSession.status !== "open"
+    ) {
+      setCorrectionError(
+        "This attendance session is closed. Corrections are no longer allowed."
       );
       return;
     }
@@ -440,6 +677,155 @@ export default function TeacherAttendance() {
     } finally {
       setCorrectionLoading(false);
     }
+  };
+
+  // ATTENDANCE SESSION STATUS AND CONTROLS
+
+  const renderSessionControls = (
+    type: "theory" | "lab"
+  ) => {
+    const session =
+      type === "theory" ? theorySession : labSession;
+
+    const lookupError =
+      type === "theory" ? theorySessionError : labSessionError;
+
+    const isOpening = openingSessionType === type;
+    const isToday = selectedDate === today;
+
+    let statusText = "Not Started";
+    let statusColor = colors.secondaryText;
+
+    if (session?.status === "open") {
+      statusText = "Session Open";
+      statusColor = colors.present;
+    } else if (session?.status === "closed") {
+      statusText = "Session Closed";
+      statusColor = colors.absent;
+    } else if (session?.status === "cancelled") {
+      statusText = "Session Cancelled";
+      statusColor = colors.danger;
+    }
+
+    return (
+      <View style={styles.sessionCard}>
+        <View style={styles.sessionInfo}>
+          <Text style={styles.sessionLabel}>
+            ATTENDANCE SESSION
+          </Text>
+
+          <View style={styles.sessionStatusRow}>
+            <View
+              style={[
+                styles.sessionStatusDot,
+                { backgroundColor: statusColor },
+              ]}
+            />
+
+            <Text
+              style={[
+                styles.sessionStatusText,
+                { color: statusColor },
+              ]}
+            >
+              {sessionLoading ? "Checking..." : statusText}
+            </Text>
+          </View>
+        </View>
+
+        {lookupError ? (
+          <View>
+            <Text style={styles.sessionErrorText}>
+              Unable to check this session: {lookupError}
+            </Text>
+
+            <Pressable
+              onPress={loadAttendance}
+              style={styles.sessionRetryButton}
+            >
+              <Text style={styles.sessionRetryText}>
+                Retry
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {!session &&
+          isToday &&
+          !sessionLoading &&
+          !lookupError && (
+            <Pressable
+              onPress={() => handleOpenSession(type)}
+              disabled={openingSessionType !== null || closingSessionType !== null}
+              style={[
+                styles.openSessionButton,
+                {
+                  opacity: openingSessionType !== null ? 0.6 : 1,
+                },
+              ]}
+            >
+              {isOpening ? (
+                <ActivityIndicator
+                  size="small"
+                  color={colors.buttonText}
+                />
+              ) : (
+                <Text style={styles.openSessionButtonText}>
+                  Open Attendance
+                </Text>
+              )}
+            </Pressable>
+          )}
+
+        {session?.status === "open" && (
+          <View>
+            <Text style={styles.sessionHint}>
+              Students can submit attendance until department closing time.
+            </Text>
+
+            <Pressable
+              onPress={() => handleCloseSession(type)}
+              disabled={closingSessionType !== null}
+              style={[
+                styles.closeSessionButton,
+                {
+                  opacity: closingSessionType !== null ? 0.6 : 1,
+                },
+              ]}
+            >
+              {closingSessionType === type ? (
+                <ActivityIndicator
+                  size="small"
+                  color={colors.buttonText}
+                />
+              ) : (
+                <Text style={styles.closeSessionButtonText}>
+                  Close Session
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        )}
+
+        {session?.status === "closed" && (
+          <Text style={styles.sessionHint}>
+            Attendance submissions and teacher corrections are locked.
+          </Text>
+        )}
+
+        {session?.status === "cancelled" && (
+          <Text style={styles.sessionHint}>
+            This attendance session was cancelled.
+          </Text>
+        )}
+
+        {!session && !isToday && !lookupError && (
+          <Text style={styles.sessionHint}>
+            No attendance session was opened for this date.
+          </Text>
+        )}
+      </View>
+    );
   };
 
   // FORMAT ATTENDANCE STATUS
@@ -971,6 +1357,8 @@ export default function TeacherAttendance() {
                                     </View>
                                   </View>
 
+                                  {renderSessionControls(type)}
+
                                   {typeStudents.length === 0 ? (
                                     <Text style={styles.message}>
                                       No students enrolled in this class.
@@ -990,7 +1378,13 @@ export default function TeacherAttendance() {
                                             <Pressable
                                               style={styles.studentInfo}
                                               disabled={
+                                                selectedDate !== today ||
                                                 !record ||
+                                                record.status === "pending" ||
+                                                !record.session_id ||
+                                                (type === "theory"
+                                                  ? theorySession?.status !== "open"
+                                                  : labSession?.status !== "open") ||
                                                 correctionLoading
                                               }
                                               onPress={() =>
@@ -1036,7 +1430,13 @@ export default function TeacherAttendance() {
 
                                             <Pressable
                                               disabled={
+                                                selectedDate !== today ||
                                                 !record ||
+                                                record.status === "pending" ||
+                                                !record.session_id ||
+                                                (type === "theory"
+                                                  ? theorySession?.status !== "open"
+                                                  : labSession?.status !== "open") ||
                                                 correctionLoading
                                               }
                                               onPress={() =>
@@ -1090,7 +1490,14 @@ export default function TeacherAttendance() {
 
                                             {/* CORRECTION PANEL */}
 
-                                            {isCorrectionOpen && record && (
+                                            {isCorrectionOpen &&
+                                              record &&
+                                              selectedDate === today &&
+                                              record.status !== "pending" &&
+                                              record.session_id &&
+                                              (type === "theory"
+                                                ? theorySession?.status === "open"
+                                                : labSession?.status === "open") && (
                                               <View
                                                 style={styles.correctionCard}
                                               >
@@ -2052,6 +2459,110 @@ const createStyles = (colors: {
     statusText: {
       fontSize: 10,
       fontWeight: "800",
+    },
+
+    // ATTENDANCE SESSION
+
+    sessionCard: {
+      backgroundColor: colors.cardSecondary,
+      borderRadius: 11,
+      padding: 13,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+
+    sessionInfo: {
+      gap: 7,
+    },
+
+    sessionLabel: {
+      fontSize: 9,
+      fontWeight: "900",
+      letterSpacing: 1.2,
+      color: colors.secondaryText,
+    },
+
+    sessionStatusRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+
+    sessionStatusDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+    },
+
+    sessionStatusText: {
+      fontSize: 12,
+      fontWeight: "900",
+    },
+
+    openSessionButton: {
+      backgroundColor: colors.button,
+      paddingVertical: 10,
+      paddingHorizontal: 13,
+      borderRadius: 8,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 11,
+      minHeight: 39,
+    },
+
+    openSessionButtonText: {
+      color: colors.buttonText,
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 0.4,
+    },
+
+    closeSessionButton: {
+      backgroundColor: colors.danger,
+      paddingVertical: 10,
+      paddingHorizontal: 13,
+      borderRadius: 8,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 10,
+      minHeight: 39,
+    },
+
+    closeSessionButtonText: {
+      color: "#FFFFFF",
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 0.4,
+    },
+
+    sessionHint: {
+      fontSize: 10,
+      lineHeight: 16,
+      color: colors.secondaryText,
+      marginTop: 8,
+    },
+
+    sessionErrorText: {
+      fontSize: 10,
+      lineHeight: 16,
+      color: colors.danger,
+      marginTop: 9,
+    },
+
+    sessionRetryButton: {
+      alignSelf: "flex-start",
+      backgroundColor: colors.button,
+      paddingHorizontal: 11,
+      paddingVertical: 7,
+      borderRadius: 6,
+      marginTop: 8,
+    },
+
+    sessionRetryText: {
+      color: colors.buttonText,
+      fontSize: 10,
+      fontWeight: "900",
     },
 
     // CORRECTION CARD

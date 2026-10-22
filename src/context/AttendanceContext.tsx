@@ -1,34 +1,22 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import NetInfo from "@react-native-community/netinfo";
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
 } from "react";
 
-import {
-  addPendingAttendance,
-  addPendingAttendanceDelete,
-  deleteAllAttendance,
-  deleteAttendance,
-  deleteSubjectAttendance,
-  getMyAttendance,
-  saveAttendance,
-  syncPendingAttendance,
-  syncPendingAttendanceDeletes,
-} from "@/lib/attendance";
-
 import { useAuth } from "@/context/AuthContext";
 
-export type AttendanceStatus =
-  | "present"
-  | "absent"
-  | "leftEarly"
-  | "club"
-  | "partial"
-  | "noClass"
-  | "noLab";
+import {
+  getMyAttendance,
+  submitStudentAttendance,
+  type AttendanceRecordStatus,
+  type CloudAttendanceStatus,
+} from "@/lib/attendance";
+
+export type AttendanceStatus = AttendanceRecordStatus;
 
 type AttendanceRecord = {
   theory?: AttendanceStatus;
@@ -43,25 +31,27 @@ export type AttendanceData = {
 
 type AttendanceContextType = {
   attendance: AttendanceData;
+  loading: boolean;
 
-  markAttendance: (
-    date: string,
-    subjectName: string,
-    type: "theory" | "lab",
-    status: AttendanceStatus
-  ) => Promise<void>;
+  refreshAttendance: () => Promise<{
+    error: Error | null;
+  }>;
 
-  resetAttendance: () => Promise<void>;
-
-  removeSubjectAttendance: (
-    subjectName: string
-  ) => Promise<void>;
+  submitAttendance: (
+    sessionId: string,
+    status: CloudAttendanceStatus
+  ) => Promise<{
+    error: Error | null;
+  }>;
 };
 
 const AttendanceContext =
   createContext<AttendanceContextType | undefined>(
     undefined
   );
+
+const getAttendanceStorageKey = (userId: string) =>
+  `@attendance_${userId}`;
 
 export function AttendanceProvider({
   children,
@@ -73,514 +63,180 @@ export function AttendanceProvider({
   const [attendance, setAttendance] =
     useState<AttendanceData>({});
 
+  const [loading, setLoading] = useState(true);
+
   /*
-   * Create a storage key that belongs
-   * only to the currently logged-in user.
+   * Convert Supabase records into
+   * the existing Calendar structure.
    */
-  const getAttendanceStorageKey = (
-    userId: string
-  ) => {
-    return `@attendance_${userId}`;
+  const convertCloudAttendance = (
+    records: {
+      attendance_date: string;
+      type: "theory" | "lab";
+      status: AttendanceStatus;
+      subject_name: string;
+    }[]
+  ): AttendanceData => {
+    const result: AttendanceData = {};
+
+    records.forEach((record) => {
+      if (!record.subject_name) {
+        return;
+      }
+
+      if (!result[record.attendance_date]) {
+        result[record.attendance_date] = {};
+      }
+
+      if (!result[record.attendance_date][record.subject_name]) {
+        result[record.attendance_date][record.subject_name] = {};
+      }
+
+      result[record.attendance_date][record.subject_name][
+        record.type
+      ] = record.status;
+    });
+
+    return result;
   };
 
   /*
-   * Initialize attendance whenever
-   * the authenticated user changes.
+   * Load authoritative attendance from Supabase
+   * and update the local cache.
+   */
+  const refreshAttendance = useCallback(async () => {
+    if (!user) {
+      return {
+        error: new Error("No authenticated user found."),
+      };
+    }
+
+    const { data, error } = await getMyAttendance();
+
+    if (error || !data) {
+      return {
+        error: error ?? new Error("Could not load attendance."),
+      };
+    }
+
+    const cloudData = convertCloudAttendance(data);
+
+    setAttendance(cloudData);
+
+    await AsyncStorage.setItem(
+      getAttendanceStorageKey(user.id),
+      JSON.stringify(cloudData)
+    );
+
+    return { error: null };
+  }, [user?.id]);
+
+  /*
+   * Initialize attendance when the user changes.
    */
   useEffect(() => {
     let cancelled = false;
 
-    const initializeAttendance = async () => {
-      /*
-       * Wait until authentication has finished.
-       */
+    const initialize = async () => {
       if (authLoading) {
         return;
       }
 
-      /*
-       * No logged-in user.
-       * Clear the in-memory attendance.
-       */
       if (!user) {
         setAttendance({});
+        setLoading(false);
         return;
       }
 
+      setLoading(true);
+
       try {
-        const storageKey =
-          getAttendanceStorageKey(user.id);
+        const storageKey = getAttendanceStorageKey(user.id);
 
-        /*
-         * 1. Load attendance belonging
-         *    only to this user.
-         */
-        const savedAttendance =
-          await AsyncStorage.getItem(storageKey);
+        const saved = await AsyncStorage.getItem(storageKey);
 
-        let localAttendance: AttendanceData = {};
-
-        if (savedAttendance) {
+        if (saved && !cancelled) {
           try {
-            localAttendance =
-              JSON.parse(savedAttendance);
-          } catch (error) {
-            console.log(
-              "⚠️ Could not parse local attendance:",
-              error
-            );
-
-            localAttendance = {};
+            setAttendance(JSON.parse(saved));
+          } catch {
+            setAttendance({});
           }
         }
-
-        if (!cancelled) {
-          setAttendance(localAttendance);
-        }
-
-        /*
-         * 2. Load this user's latest
-         *    attendance from Supabase.
-         */
-        const {
-          data: cloudAttendance,
-          error,
-        } = await getMyAttendance();
 
         if (cancelled) {
           return;
         }
 
+        const { error } = await refreshAttendance();
+
         if (error) {
           console.log(
-            "⚠️ Could not load attendance from Supabase:",
+            "Could not refresh attendance:",
             error
           );
-
-          return;
         }
-
-        if (!cloudAttendance) {
-          return;
-        }
-
-        /*
-         * 3. Convert cloud attendance
-         *    into our existing AttendanceData
-         *    structure.
-         */
-        const cloudData: AttendanceData = {};
-
-        cloudAttendance.forEach((record) => {
-          if (!record.subject_name) {
-            return;
-          }
-
-          if (!cloudData[record.attendance_date]) {
-            cloudData[record.attendance_date] = {};
-          }
-
-          if (
-            !cloudData[record.attendance_date][
-              record.subject_name
-            ]
-          ) {
-            cloudData[record.attendance_date][
-              record.subject_name
-            ] = {};
-          }
-
-          cloudData[record.attendance_date][
-            record.subject_name
-          ][record.type] = record.status;
-        });
-
-        /*
-         * 4. Cloud data belongs to the
-         *    currently authenticated user.
-         */
-        setAttendance(cloudData);
-
-        /*
-         * 5. Cache this user's cloud data
-         *    under this user's own key.
-         */
-        await AsyncStorage.setItem(
-          storageKey,
-          JSON.stringify(cloudData)
-        );
-
-        console.log(
-          "✅ Attendance synced from Supabase"
-        );
       } catch (error) {
+        console.log("Attendance initialization failed:", error);
+      } finally {
         if (!cancelled) {
-          console.log(
-            "Error initializing attendance:",
-            error
-          );
+          setLoading(false);
         }
       }
     };
 
-    initializeAttendance();
+    initialize();
 
     return () => {
       cancelled = true;
     };
-  }, [user?.id, authLoading]);
+  }, [user?.id, authLoading, refreshAttendance]);
 
   /*
-   * Listen for internet connectivity changes.
-   *
-   * Wait until authentication is complete
-   * and a user is logged in before syncing.
+   * Submit through the session RPC.
+   * No offline queue is used.
    */
-  useEffect(() => {
-    if (authLoading || !user) {
-      return;
-    }
-
-    const unsubscribe =
-      NetInfo.addEventListener(
-        async (state) => {
-          if (state.isConnected) {
-            console.log(
-              "🌐 Internet connection detected"
-            );
-
-            /*
-             * Sync pending attendance
-             * create/update operations.
-             */
-            const {
-              error: attendanceSyncError,
-            } = await syncPendingAttendance();
-
-            if (attendanceSyncError) {
-              console.log(
-                "⚠️ Pending attendance sync failed:",
-                attendanceSyncError
-              );
-            }
-
-            /*
-             * Sync pending attendance
-             * deletion operations.
-             */
-            const {
-              error: deletionSyncError,
-            } = await syncPendingAttendanceDeletes();
-
-            if (deletionSyncError) {
-              console.log(
-                "⚠️ Pending attendance deletion sync failed:",
-                deletionSyncError
-              );
-            }
-          }
-        }
-      );
-
-    return () => {
-      unsubscribe();
-    };
-  }, [user?.id, authLoading]);
-
-  /*
-   * Mark attendance locally first.
-   * Then synchronize the change with Supabase.
-   */
-  const markAttendance = async (
-    date: string,
-    subjectName: string,
-    type: "theory" | "lab",
-    status: AttendanceStatus
+  const submitAttendance = async (
+    sessionId: string,
+    status: CloudAttendanceStatus
   ) => {
     if (!user) {
-      console.log(
-        "⚠️ Cannot mark attendance without a logged-in user."
-      );
-      return;
-    }
-
-    try {
-      const updatedAttendance = {
-        ...attendance,
+      return {
+        error: new Error("Please log in to submit attendance."),
       };
+    }
 
-      const storageKey =
-        getAttendanceStorageKey(user.id);
+    const { error } = await submitStudentAttendance(
+      sessionId,
+      status
+    );
 
-      /*
-       * Create date if it doesn't exist.
-       */
-      if (!updatedAttendance[date]) {
-        updatedAttendance[date] = {};
-      }
+    if (error) {
+      return { error };
+    }
 
-      /*
-       * Create subject if it doesn't exist.
-       */
-      if (
-        !updatedAttendance[date][subjectName]
-      ) {
-        updatedAttendance[date][subjectName] = {};
-      }
+    /*
+     * Refresh after the server confirms
+     * the submission.
+     */
+    const refreshResult = await refreshAttendance();
 
-      const currentStatus =
-        updatedAttendance[date][subjectName][type];
-
-      /*
-       * Tapping the same status again
-       * removes the attendance record.
-       */
-      if (currentStatus === status) {
-        delete updatedAttendance[date][subjectName][type];
-
-        /*
-         * Remove empty subject.
-         */
-        if (
-          Object.keys(
-            updatedAttendance[date][subjectName]
-          ).length === 0
-        ) {
-          delete updatedAttendance[date][subjectName];
-        }
-
-        /*
-         * Remove empty date.
-         */
-        if (
-          Object.keys(updatedAttendance[date]).length === 0
-        ) {
-          delete updatedAttendance[date];
-        }
-
-        /*
-         * Update local state first.
-         */
-        setAttendance(updatedAttendance);
-
-        /*
-         * Save to this user's local cache.
-         */
-        await AsyncStorage.setItem(
-          storageKey,
-          JSON.stringify(updatedAttendance)
-        );
-
-        /*
-         * Remove the record from Supabase.
-         */
-        const { error } = await deleteAttendance(
-          date,
-          subjectName,
-          type
-        );
-
-        if (error) {
-          console.log(
-            "⚠️ Cloud attendance delete failed:",
-            error
-          );
-
-          await addPendingAttendanceDelete({
-            date,
-            subjectName,
-            type,
-          });
-        } else {
-          console.log(
-            "✅ Attendance removed from Supabase"
-          );
-        }
-
-        return;
-      }
-
-      /*
-       * Add or update local attendance.
-       */
-      updatedAttendance[date][subjectName][type] =
-        status;
-
-      /*
-       * Save locally first.
-       */
-      setAttendance(updatedAttendance);
-
-      await AsyncStorage.setItem(
-        storageKey,
-        JSON.stringify(updatedAttendance)
-      );
-
-      /*
-       * Try to synchronize with Supabase.
-       */
-      const { error } = await saveAttendance(
-        date,
-        subjectName,
-        type,
-        status
-      );
-
-      if (error) {
-        /*
-         * Keep attendance locally and
-         * add it to the offline queue.
-         */
-        console.log(
-          "⚠️ Cloud attendance sync failed:",
-          error
-        );
-
-        await addPendingAttendance({
-          date,
-          subjectName,
-          type,
-          status,
-        });
-      } else {
-        console.log(
-          "✅ Attendance synced to Supabase"
-        );
-      }
-    } catch (error) {
+    if (refreshResult.error) {
       console.log(
-        "Error marking attendance:",
-        error
+        "Attendance submitted, but refresh failed:",
+        refreshResult.error
       );
     }
+
+    return { error: null };
   };
-
-  /*
-   * Reset ALL attendance.
-   */
-  const resetAttendance = async () => {
-    if (!user) {
-      return;
-    }
-
-    try {
-      const storageKey =
-        getAttendanceStorageKey(user.id);
-
-      /*
-       * Clear this user's local attendance.
-       */
-      await AsyncStorage.removeItem(storageKey);
-
-      setAttendance({});
-
-      /*
-       * Clear this user's cloud attendance.
-       */
-      const { error } = await deleteAllAttendance();
-
-      if (error) {
-        console.log(
-          "⚠️ Cloud attendance reset failed:",
-          error
-        );
-      } else {
-        console.log(
-          "✅ All attendance removed from Supabase"
-        );
-      }
-    } catch (error) {
-      console.log(
-        "Error resetting attendance:",
-        error
-      );
-    }
-  };
-
-  /*
-   * Remove ALL attendance belonging
-   * to one subject.
-   */
-  const removeSubjectAttendance =
-    async (subjectName: string) => {
-      if (!user) {
-        return;
-      }
-
-      try {
-        const storageKey =
-          getAttendanceStorageKey(user.id);
-
-        const updatedAttendance = {
-          ...attendance,
-        };
-
-        /*
-         * Remove subject from every local date.
-         */
-        Object.keys(updatedAttendance).forEach(
-          (date) => {
-            if (
-              updatedAttendance[date]?.[subjectName]
-            ) {
-              delete updatedAttendance[date][subjectName];
-            }
-
-            /*
-             * Remove empty dates.
-             */
-            if (
-              updatedAttendance[date] &&
-              Object.keys(updatedAttendance[date]).length === 0
-            ) {
-              delete updatedAttendance[date];
-            }
-          }
-        );
-
-        /*
-         * Save updated local data.
-         */
-        await AsyncStorage.setItem(
-          storageKey,
-          JSON.stringify(updatedAttendance)
-        );
-
-        setAttendance(updatedAttendance);
-
-        /*
-         * Remove the same attendance
-         * from Supabase.
-         */
-        const { error } = await deleteSubjectAttendance(
-          subjectName
-        );
-
-        if (error) {
-          console.log(
-            "⚠️ Cloud subject attendance deletion failed:",
-            error
-          );
-        } else {
-          console.log(
-            "✅ Subject attendance removed from Supabase"
-          );
-        }
-      } catch (error) {
-        console.log(
-          "Error removing subject attendance:",
-          error
-        );
-      }
-    };
 
   return (
     <AttendanceContext.Provider
       value={{
         attendance,
-        markAttendance,
-        resetAttendance,
-        removeSubjectAttendance,
+        loading,
+        refreshAttendance,
+        submitAttendance,
       }}
     >
       {children}

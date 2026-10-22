@@ -1,30 +1,33 @@
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 
 import { useTheme } from "@/context/ThemeContext";
 import { supabase } from "@/lib/supabase";
+
+// --------------------------------------------------
+// Types
+// --------------------------------------------------
 
 type HolidayScope = "all" | "students" | "teachers" | "selected";
 
 type Holiday = {
   id: string;
   name: string;
-  date: string;
-  description: string;
+  holiday_date: string;
+  description: string | null;
   scope: HolidayScope;
-  groups: string;
+  groups: string[];
 };
 
 type AcademicYearRecord = {
@@ -33,6 +36,7 @@ type AcademicYearRecord = {
   start_date: string;
   end_date: string;
   is_active: boolean;
+  working_days?: string[];
 };
 
 type SemesterRecord = {
@@ -45,7 +49,11 @@ type SemesterRecord = {
   is_custom_dates: boolean;
 };
 
-const HOLIDAY_STORAGE_KEY = "@attendflow_holidays";
+type SemesterDate = {
+  startDate: string;
+  endDate: string;
+  isCustom: boolean;
+};
 
 const weekdays = [
   "Monday",
@@ -55,6 +63,15 @@ const weekdays = [
   "Friday",
   "Saturday",
   "Sunday",
+];
+
+const DEFAULT_WORKING_DAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
 ];
 
 const scopeOptions: {
@@ -67,53 +84,94 @@ const scopeOptions: {
   { label: "Selected groups", value: "selected" },
 ];
 
-const DEFAULT_WORKING_DAYS = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
+// --------------------------------------------------
+// Date helpers
+// --------------------------------------------------
+
+const isValidDate = (value: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  const date = new Date(year, month - 1, day);
+
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+};
+
+const getDefaultSemesterDates = (
+  semesterNumber: number,
+  yearName: string
+): SemesterDate => {
+  const firstYear = Number(yearName.slice(0, 4));
+
+  if (semesterNumber % 2 !== 0) {
+    return {
+      startDate: `${firstYear}-07-01`,
+      endDate: `${firstYear}-11-30`,
+      isCustom: false,
+    };
+  }
+
+  return {
+    startDate: `${firstYear + 1}-01-12`,
+    endDate: `${firstYear + 1}-04-30`,
+    isCustom: false,
+  };
+};
+
+const formatDate = (date: string) => {
+  const [year, month, day] = date.split("-");
+  return `${day}-${month}-${year}`;
+};
+
+// --------------------------------------------------
+// Screen
+// --------------------------------------------------
 
 export default function AcademicConfiguration() {
   const { colors } = useTheme();
   const styles = createStyles(colors);
 
-  // Collapsible admin sections (collapsed by default)
+  // Collapsible sections
   const [isAcademicYearExpanded, setIsAcademicYearExpanded] =
     useState(false);
-  const [isHolidayExpanded, setIsHolidayExpanded] =
-    useState(false);
+  const [isHolidayExpanded, setIsHolidayExpanded] = useState(false);
 
-  // Academic year and semester
-  const [academicYear, setAcademicYear] = useState("2026-2027");
+  // Academic year
+  const [academicYear, setAcademicYear] = useState("");
   const [academicYearId, setAcademicYearId] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
-  const [semester, setSemester] = useState("5");
-  const [semesterStartDate, setSemesterStartDate] =
-    useState("2026-07-01");
-  const [semesterEndDate, setSemesterEndDate] =
-    useState("2026-11-30");
-  const [isCustomSemesterDates, setIsCustomSemesterDates] =
-    useState(false);
+  // Multiple semesters
+  const [selectedSemesters, setSelectedSemesters] = useState<number[]>([5]);
 
-  // Full academic-year duration
-  const [startDate, setStartDate] = useState("2026-07-01");
-  const [endDate, setEndDate] = useState("2027-06-30");
+  const [semesterDates, setSemesterDates] = useState<
+    Record<number, SemesterDate>
+  >({});
 
-  const [academicConfigLoaded, setAcademicConfigLoaded] =
-    useState(false);
-  const [isSavingConfiguration, setIsSavingConfiguration] =
-    useState(false);
+  // Loading and saving
+  const [academicConfigLoaded, setAcademicConfigLoaded] = useState(false);
+  const [academicConfigError, setAcademicConfigError] = useState(false);
+  const [isSavingConfiguration, setIsSavingConfiguration] = useState(false);
 
   // Working days
-  const [workingDays, setWorkingDays] =
-    useState<string[]>(DEFAULT_WORKING_DAYS);
+  const [workingDays, setWorkingDays] = useState<string[]>(
+    DEFAULT_WORKING_DAYS
+  );
 
-  // Holiday records
+  // Holidays
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [holidaysLoaded, setHolidaysLoaded] = useState(false);
+  const [isSavingHoliday, setIsSavingHoliday] = useState(false);
 
   // Holiday form
   const [holidayName, setHolidayName] = useState("");
@@ -125,182 +183,196 @@ export default function AcademicConfiguration() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   // --------------------------------------------------
-  // Date helpers
+  // Load academic year, semesters and working days
   // --------------------------------------------------
 
-  const isValidDate = (value: string) => {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  const loadAcademicConfiguration = useCallback(async () => {
+    setAcademicConfigLoaded(false);
+    setAcademicConfigError(false);
 
-    if (!match) return false;
+    try {
+      const { data: yearData, error: yearError } = await supabase
+        .from("academic_years")
+        .select("*")
+        .eq("is_active", true)
+        .maybeSingle();
 
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
+      if (yearError) throw yearError;
 
-    const date = new Date(year, month - 1, day);
+      if (!yearData) {
+        throw new Error("No active academic year was found.");
+      }
 
-    return (
-      date.getFullYear() === year &&
-      date.getMonth() === month - 1 &&
-      date.getDate() === day
-    );
-  };
+      const year = yearData as AcademicYearRecord;
 
-  const getDefaultSemesterDates = (
-    semesterNumber: number,
-    yearName: string
-  ) => {
-    const firstYear = Number(yearName.slice(0, 4));
+      setAcademicYearId(year.id);
+      setAcademicYear(year.name);
+      setStartDate(year.start_date);
+      setEndDate(year.end_date);
 
-    if (semesterNumber % 2 !== 0) {
-      return {
-        startDate: `${firstYear}-07-01`,
-        endDate: `${firstYear}-11-30`,
-      };
-    }
+      // Load working days
+      const { data: workingDayData, error: workingDayError } =
+        await supabase
+          .from("academic_working_days")
+          .select("day_of_week")
+          .eq("academic_year_id", year.id);
 
-    return {
-      startDate: `${firstYear + 1}-01-12`,
-      endDate: `${firstYear + 1}-04-30`,
-    };
-  };
+      if (workingDayError) throw workingDayError;
 
-  const formatDate = (date: string) => {
-    const [year, month, day] = date.split("-");
-    return `${day}-${month}-${year}`;
-  };
+      const savedWorkingDays = (workingDayData ?? []).map(
+        (item: { day_of_week: string }) => item.day_of_week
+      );
 
-  // --------------------------------------------------
-  // Load academic year and active semester from Supabase
-  // --------------------------------------------------
+      setWorkingDays(
+        savedWorkingDays.length > 0
+          ? savedWorkingDays
+          : year.working_days?.length
+            ? year.working_days
+            : DEFAULT_WORKING_DAYS
+      );
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadAcademicConfiguration = async () => {
-      try {
-        const { data: yearData, error: yearError } = await supabase
-          .from("academic_years")
+      // Load ALL semesters for this academic year.
+      // Do not use maybeSingle() here because multiple semesters
+      // are allowed to be active at the same time.
+      const { data: semesterData, error: semesterError } =
+        await supabase
+          .from("semesters")
           .select("*")
-          .eq("name", "2026-2027")
-          .single();
+          .eq("academic_year_id", year.id)
+          .order("semester_number", { ascending: true });
 
-        if (yearError) throw yearError;
+      if (semesterError) throw semesterError;
 
-        const year = yearData as AcademicYearRecord;
+      const records = (semesterData ?? []) as SemesterRecord[];
 
-        if (!isMounted) return;
+      const dateMap: Record<number, SemesterDate> = {};
 
-        setAcademicYearId(year.id);
-        setAcademicYear(year.name);
-        setStartDate(year.start_date);
-        setEndDate(year.end_date);
+      for (let number = 1; number <= 8; number++) {
+        const existing = records.find(
+          (item) => item.semester_number === number
+        );
 
-        const { data: semesterData, error: semesterError } =
-          await supabase
-            .from("semesters")
-            .select("*")
-            .eq("academic_year_id", year.id)
-            .eq("is_active", true)
-            .maybeSingle();
-
-        if (semesterError) throw semesterError;
-
-        if (!isMounted) return;
-
-        if (semesterData) {
-          const activeSemester = semesterData as SemesterRecord;
-
-          setSemester(String(activeSemester.semester_number));
-          setSemesterStartDate(activeSemester.start_date);
-          setSemesterEndDate(activeSemester.end_date);
-          setIsCustomSemesterDates(
-            activeSemester.is_custom_dates ?? false
-          );
+        if (existing) {
+          dateMap[number] = {
+            startDate: existing.start_date,
+            endDate: existing.end_date,
+            isCustom: existing.is_custom_dates ?? false,
+          };
         } else {
-          const defaults = getDefaultSemesterDates(5, year.name);
-
-          setSemester("5");
-          setSemesterStartDate(defaults.startDate);
-          setSemesterEndDate(defaults.endDate);
-          setIsCustomSemesterDates(false);
-        }
-      } catch (error) {
-        console.error("Error loading academic configuration:", error);
-
-        if (isMounted) {
-          Alert.alert(
-            "Loading Error",
-            "Unable to load academic year and semester details from Supabase. Please check your connection and database permissions."
-          );
-        }
-      } finally {
-        if (isMounted) {
-          setAcademicConfigLoaded(true);
+          dateMap[number] = getDefaultSemesterDates(number, year.name);
         }
       }
-    };
 
-    loadAcademicConfiguration();
+      setSemesterDates(dateMap);
 
-    return () => {
-      isMounted = false;
-    };
+      const activeNumbers = records
+        .filter((item) => item.is_active)
+        .map((item) => item.semester_number)
+        .sort((a, b) => a - b);
+
+      setSelectedSemesters(
+        activeNumbers.length > 0 ? activeNumbers : [5]
+      );
+
+      setAcademicConfigError(false);
+    } catch (error) {
+      console.error("Error loading academic configuration:", error);
+
+      setAcademicConfigError(true);
+
+      Alert.alert(
+        "Loading Error",
+        "Unable to load academic configuration. Please check your connection and database permissions."
+      );
+    } finally {
+      setAcademicConfigLoaded(true);
+    }
   }, []);
 
+  useEffect(() => {
+    loadAcademicConfiguration();
+  }, [loadAcademicConfiguration]);
+
   // --------------------------------------------------
-  // Select a semester
+  // Load holidays
   // --------------------------------------------------
 
-  const handleSemesterChange = async (value: string) => {
-    if (!academicYearId) {
-      Alert.alert(
-        "Please wait",
-        "Academic year details are still loading."
-      );
-      return;
-    }
-
-    const semesterNumber = Number(value);
-
-    setSemester(value);
+  const loadHolidays = useCallback(async (yearId: string) => {
+    setHolidaysLoaded(false);
 
     try {
       const { data, error } = await supabase
-        .from("semesters")
+        .from("holidays")
         .select("*")
-        .eq("academic_year_id", academicYearId)
-        .eq("semester_number", semesterNumber)
-        .maybeSingle();
+        .eq("academic_year_id", yearId)
+        .order("holiday_date", { ascending: true });
 
       if (error) throw error;
 
-      if (data) {
-        const selectedSemester = data as SemesterRecord;
-
-        setSemesterStartDate(selectedSemester.start_date);
-        setSemesterEndDate(selectedSemester.end_date);
-        setIsCustomSemesterDates(
-          selectedSemester.is_custom_dates ?? false
-        );
-      } else {
-        const defaults = getDefaultSemesterDates(
-          semesterNumber,
-          academicYear
-        );
-
-        setSemesterStartDate(defaults.startDate);
-        setSemesterEndDate(defaults.endDate);
-        setIsCustomSemesterDates(false);
-      }
+      setHolidays((data ?? []) as Holiday[]);
     } catch (error) {
-      console.error("Error loading semester:", error);
+      console.error("Error loading holidays:", error);
 
       Alert.alert(
-        "Error",
-        "Unable to load the selected semester."
+        "Loading Error",
+        "Unable to load holidays from Supabase."
       );
+    } finally {
+      setHolidaysLoaded(true);
     }
+  }, []);
+
+  useEffect(() => {
+    if (academicYearId) {
+      loadHolidays(academicYearId);
+    }
+  }, [academicYearId, loadHolidays]);
+
+  const sortedHolidays = useMemo(
+    () =>
+      [...holidays].sort((a, b) =>
+        a.holiday_date.localeCompare(b.holiday_date)
+      ),
+    [holidays]
+  );
+
+  // --------------------------------------------------
+  // Multiple semester selection
+  // --------------------------------------------------
+
+  const toggleSemester = (semesterNumber: number) => {
+    setSelectedSemesters((current) =>
+      current.includes(semesterNumber)
+        ? current.filter((item) => item !== semesterNumber)
+        : [...current, semesterNumber].sort((a, b) => a - b)
+    );
+
+    setSemesterDates((current) => {
+      if (current[semesterNumber]) return current;
+
+      return {
+        ...current,
+        [semesterNumber]: getDefaultSemesterDates(
+          semesterNumber,
+          academicYear
+        ),
+      };
+    });
+  };
+
+  const updateSemesterDate = (
+    semesterNumber: number,
+    field: "startDate" | "endDate",
+    value: string
+  ) => {
+    setSemesterDates((current) => ({
+      ...current,
+      [semesterNumber]: {
+        ...current[semesterNumber],
+        [field]: value,
+        isCustom: true,
+      },
+    }));
   };
 
   // --------------------------------------------------
@@ -316,67 +388,7 @@ export default function AcademicConfiguration() {
   };
 
   // --------------------------------------------------
-  // Holiday storage: AsyncStorage
-  // --------------------------------------------------
-
-  useEffect(() => {
-    const loadHolidays = async () => {
-      try {
-        const savedHolidays = await AsyncStorage.getItem(
-          HOLIDAY_STORAGE_KEY
-        );
-
-        if (savedHolidays) {
-          const parsedHolidays: unknown = JSON.parse(savedHolidays);
-
-          if (Array.isArray(parsedHolidays)) {
-            setHolidays(parsedHolidays as Holiday[]);
-          }
-        }
-      } catch (error) {
-        console.error("Error loading holidays:", error);
-
-        Alert.alert(
-          "Loading Error",
-          "Unable to load saved holidays."
-        );
-      } finally {
-        setHolidaysLoaded(true);
-      }
-    };
-
-    loadHolidays();
-  }, []);
-
-  useEffect(() => {
-    if (!holidaysLoaded) return;
-
-    const saveHolidays = async () => {
-      try {
-        await AsyncStorage.setItem(
-          HOLIDAY_STORAGE_KEY,
-          JSON.stringify(holidays)
-        );
-      } catch (error) {
-        console.error("Error saving holidays:", error);
-
-        Alert.alert(
-          "Saving Error",
-          "Unable to save holidays on this device."
-        );
-      }
-    };
-
-    saveHolidays();
-  }, [holidays, holidaysLoaded]);
-
-  const sortedHolidays = useMemo(
-    () => [...holidays].sort((a, b) => a.date.localeCompare(b.date)),
-    [holidays]
-  );
-
-  // --------------------------------------------------
-  // Holiday form helpers
+  // Holiday form
   // --------------------------------------------------
 
   const resetHolidayForm = () => {
@@ -388,10 +400,40 @@ export default function AcademicConfiguration() {
     setEditingId(null);
   };
 
-  const handleAddHoliday = () => {
+  const getScopeLabel = (holiday: Holiday) => {
+    switch (holiday.scope) {
+      case "all":
+        return "Entire institution";
+      case "students":
+        return "Students only";
+      case "teachers":
+        return "Teachers only";
+      case "selected":
+        return holiday.groups.join(", ");
+    }
+  };
+
+  // --------------------------------------------------
+  // Add / update holiday
+  // --------------------------------------------------
+
+  const handleAddHoliday = async () => {
+    if (!academicYearId) {
+      Alert.alert("Error", "No academic year is selected.");
+      return;
+    }
+
     const cleanName = holidayName.trim();
     const cleanDate = holidayDate.trim();
-    const cleanGroups = holidayGroups.trim();
+    const cleanDescription = holidayDescription.trim();
+
+    const groups =
+      holidayScope === "selected"
+        ? holidayGroups
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : [];
 
     if (!cleanName) {
       Alert.alert("Required", "Enter a holiday name.");
@@ -401,12 +443,20 @@ export default function AcademicConfiguration() {
     if (!isValidDate(cleanDate)) {
       Alert.alert(
         "Invalid date",
-        "Enter a valid date in YYYY-MM-DD format. Example: 2026-08-15"
+        "Enter a valid date in YYYY-MM-DD format."
       );
       return;
     }
 
-    if (holidayScope === "selected" && !cleanGroups) {
+    if (cleanDate < startDate || cleanDate > endDate) {
+      Alert.alert(
+        "Invalid holiday date",
+        "The holiday must fall within the selected academic year."
+      );
+      return;
+    }
+
+    if (holidayScope === "selected" && groups.length === 0) {
       Alert.alert(
         "Groups required",
         "Enter at least one department or class."
@@ -416,10 +466,10 @@ export default function AcademicConfiguration() {
 
     const duplicate = holidays.some(
       (holiday) =>
-        holiday.date === cleanDate &&
+        holiday.holiday_date === cleanDate &&
         holiday.id !== editingId &&
         holiday.scope === holidayScope &&
-        holiday.groups === cleanGroups
+        JSON.stringify(holiday.groups) === JSON.stringify(groups)
     );
 
     if (duplicate) {
@@ -430,69 +480,108 @@ export default function AcademicConfiguration() {
       return;
     }
 
-    const holiday: Holiday = {
-      id: editingId ?? `${Date.now()}`,
+    const payload = {
+      academic_year_id: academicYearId,
       name: cleanName,
-      date: cleanDate,
-      description: holidayDescription.trim(),
+      holiday_date: cleanDate,
+      description: cleanDescription || null,
       scope: holidayScope,
-      groups: holidayScope === "selected" ? cleanGroups : "",
+      groups,
     };
 
-    if (editingId) {
-      setHolidays((current) =>
-        current.map((item) =>
-          item.id === editingId ? holiday : item
-        )
-      );
+    setIsSavingHoliday(true);
+
+    try {
+      if (editingId) {
+        const { data, error } = await supabase
+          .from("holidays")
+          .update(payload)
+          .eq("id", editingId)
+          .select("*")
+          .single();
+
+        if (error) throw error;
+
+        setHolidays((current) =>
+          current.map((item) =>
+            item.id === editingId ? (data as Holiday) : item
+          )
+        );
+
+        Alert.alert("Updated", "Holiday details have been updated.");
+      } else {
+        const { data, error } = await supabase
+          .from("holidays")
+          .insert(payload)
+          .select("*")
+          .single();
+
+        if (error) throw error;
+
+        setHolidays((current) => [...current, data as Holiday]);
+
+        Alert.alert("Added", "Holiday has been added successfully.");
+      }
+
+      resetHolidayForm();
+    } catch (error) {
+      console.error("Error saving holiday:", error);
 
       Alert.alert(
-        "Updated",
-        "Holiday details have been updated."
+        "Saving Error",
+        "Unable to save the holiday. Check your connection and database permissions."
       );
-    } else {
-      setHolidays((current) => [...current, holiday]);
-
-      Alert.alert(
-        "Added",
-        "Holiday has been added successfully."
-      );
+    } finally {
+      setIsSavingHoliday(false);
     }
-
-    resetHolidayForm();
   };
+
+  // --------------------------------------------------
+  // Edit holiday
+  // --------------------------------------------------
 
   const handleEditHoliday = (holiday: Holiday) => {
     setHolidayName(holiday.name);
-    setHolidayDate(holiday.date);
-    setHolidayDescription(holiday.description);
+    setHolidayDate(holiday.holiday_date);
+    setHolidayDescription(holiday.description ?? "");
     setHolidayScope(holiday.scope);
-    setHolidayGroups(holiday.groups);
+    setHolidayGroups(holiday.groups.join(", "));
     setEditingId(holiday.id);
-
-    // Open the form when editing a holiday.
     setIsHolidayExpanded(true);
   };
+
+  // --------------------------------------------------
+  // Delete holiday
+  // --------------------------------------------------
 
   const handleDeleteHoliday = (id: string) => {
     Alert.alert(
       "Delete Holiday",
       "Are you sure you want to remove this holiday?",
       [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
+        { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
-            setHolidays((current) =>
-              current.filter((item) => item.id !== id)
-            );
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from("holidays")
+                .delete()
+                .eq("id", id);
 
-            if (editingId === id) {
-              resetHolidayForm();
+              if (error) throw error;
+
+              setHolidays((current) =>
+                current.filter((item) => item.id !== id)
+              );
+
+              if (editingId === id) {
+                resetHolidayForm();
+              }
+            } catch (error) {
+              console.error("Error deleting holiday:", error);
+              Alert.alert("Delete Error", "Unable to delete the holiday.");
             }
           },
         },
@@ -500,62 +589,96 @@ export default function AcademicConfiguration() {
     );
   };
 
-  const getScopeLabel = (holiday: Holiday) => {
-    switch (holiday.scope) {
-      case "all":
-        return "Entire institution";
-      case "students":
-        return "Students only";
-      case "teachers":
-        return "Teachers only";
-      case "selected":
-        return holiday.groups;
-    }
-  };
-
   // --------------------------------------------------
-  // Save academic year and semester to Supabase
+  // Save academic configuration
   // --------------------------------------------------
 
   const handleSaveConfiguration = async () => {
-    if (!academicYear.trim() || !startDate.trim() || !endDate.trim()) {
+    if (!academicConfigLoaded || academicConfigError) {
       Alert.alert(
-        "Incomplete information",
-        "Complete all academic year fields."
+        "Cannot save",
+        "Academic configuration has not loaded successfully. Please reload it first."
       );
       return;
     }
 
-    if (
-      !isValidDate(startDate) ||
-      !isValidDate(endDate) ||
-      !isValidDate(semesterStartDate) ||
-      !isValidDate(semesterEndDate)
-    ) {
+    const cleanYear = academicYear.trim();
+
+    if (!/^\d{4}-\d{4}$/.test(cleanYear)) {
+      Alert.alert(
+        "Invalid academic year",
+        "Enter the academic year in YYYY-YYYY format, for example 2026-2027."
+      );
+      return;
+    }
+
+    const [firstYear, secondYear] = cleanYear.split("-").map(Number);
+
+    if (secondYear !== firstYear + 1) {
+      Alert.alert(
+        "Invalid academic year",
+        "The second year must be exactly one year after the first."
+      );
+      return;
+    }
+
+    if (!isValidDate(startDate) || !isValidDate(endDate)) {
       Alert.alert(
         "Invalid dates",
-        "Enter all dates in YYYY-MM-DD format."
+        "Enter valid academic year dates in YYYY-MM-DD format."
       );
       return;
     }
 
-    if (startDate > endDate || semesterStartDate > semesterEndDate) {
+    if (startDate > endDate) {
       Alert.alert(
         "Invalid dates",
-        "An end date cannot be before its start date."
+        "The academic year end date cannot be before its start date."
       );
       return;
     }
 
-    if (
-      semesterStartDate < startDate ||
-      semesterEndDate > endDate
-    ) {
+    if (selectedSemesters.length === 0) {
       Alert.alert(
-        "Invalid semester",
-        "Semester dates must fall within the academic year."
+        "Semester required",
+        "Select at least one active semester."
       );
       return;
+    }
+
+    for (const semesterNumber of selectedSemesters) {
+      const dates = semesterDates[semesterNumber];
+
+      if (
+        !dates ||
+        !isValidDate(dates.startDate) ||
+        !isValidDate(dates.endDate)
+      ) {
+        Alert.alert(
+          "Invalid semester dates",
+          `Enter valid dates for Semester ${semesterNumber}.`
+        );
+        return;
+      }
+
+      if (dates.startDate > dates.endDate) {
+        Alert.alert(
+          "Invalid semester dates",
+          `Semester ${semesterNumber} end date cannot be before its start date.`
+        );
+        return;
+      }
+
+      if (
+        dates.startDate < startDate ||
+        dates.endDate > endDate
+      ) {
+        Alert.alert(
+          "Invalid semester",
+          `Semester ${semesterNumber} dates must fall within the academic year.`
+        );
+        return;
+      }
     }
 
     if (workingDays.length === 0) {
@@ -569,101 +692,125 @@ export default function AcademicConfiguration() {
     setIsSavingConfiguration(true);
 
     try {
-      // Find the existing academic year first.
+      // Find or create academic year.
       const { data: existingYear, error: findYearError } =
         await supabase
           .from("academic_years")
-          .select("id")
-          .eq("name", academicYear.trim())
+          .select("*")
+          .eq("name", cleanYear)
           .maybeSingle();
 
       if (findYearError) throw findYearError;
 
-      let yearData: AcademicYearRecord;
+      let yearId: string;
 
       if (existingYear) {
-        // Update the existing academic year.
-        const { data, error } = await supabase
-          .from("academic_years")
-          .update({
-            start_date: startDate,
-            end_date: endDate,
-            is_active: true,
-          })
-          .eq("id", existingYear.id)
-          .select("*")
-          .single();
-
-        if (error) throw error;
-
-        yearData = data as AcademicYearRecord;
+        yearId = existingYear.id;
       } else {
-        // Create a new academic year.
         const { data, error } = await supabase
           .from("academic_years")
           .insert({
-            name: academicYear.trim(),
+            name: cleanYear,
             start_date: startDate,
             end_date: endDate,
-            is_active: true,
+            is_active: false,
+            working_days: workingDays,
           })
-          .select("*")
+          .select("id")
           .single();
 
         if (error) throw error;
 
-        yearData = data as AcademicYearRecord;
+        yearId = data.id;
       }
 
-      setAcademicYearId(yearData.id);
-
-      // Deactivate other academic years.
+      // Deactivate other academic years first because the database
+      // has a partial unique index allowing only one active year.
       const { error: deactivateYearError } = await supabase
         .from("academic_years")
         .update({ is_active: false })
-        .neq("id", yearData.id)
-        .eq("is_active", true);
+        .eq("is_active", true)
+        .neq("id", yearId);
 
       if (deactivateYearError) throw deactivateYearError;
 
-      // Deactivate other semesters in this academic year.
+      // Activate/update the selected academic year.
+      const { error: updateYearError } = await supabase
+        .from("academic_years")
+        .update({
+          name: cleanYear,
+          start_date: startDate,
+          end_date: endDate,
+          is_active: true,
+          working_days: workingDays,
+        })
+        .eq("id", yearId);
+
+      if (updateYearError) throw updateYearError;
+
+      // Deactivate every semester in this academic year.
       const { error: deactivateSemesterError } = await supabase
         .from("semesters")
         .update({ is_active: false })
-        .eq("academic_year_id", yearData.id)
-        .eq("is_active", true);
+        .eq("academic_year_id", yearId);
 
       if (deactivateSemesterError) throw deactivateSemesterError;
 
-      // Save the selected semester.
+      // Upsert all selected semesters as active.
+      // Unselected semester records are retained but inactive.
+      const semesterRecords = selectedSemesters.map((number) => {
+        const dates = semesterDates[number];
+
+        return {
+          academic_year_id: yearId,
+          semester_number: number,
+          start_date: dates.startDate,
+          end_date: dates.endDate,
+          is_active: true,
+          is_custom_dates: dates.isCustom,
+        };
+      });
+
       const { error: semesterError } = await supabase
         .from("semesters")
-        .upsert(
-          {
-            academic_year_id: yearData.id,
-            semester_number: Number(semester),
-            start_date: semesterStartDate,
-            end_date: semesterEndDate,
-            is_active: true,
-            is_custom_dates: isCustomSemesterDates,
-          },
-          {
-            onConflict: "academic_year_id,semester_number",
-          }
-        );
+        .upsert(semesterRecords, {
+          onConflict: "academic_year_id,semester_number",
+        });
 
       if (semesterError) throw semesterError;
 
+      // Persist working days in the separate table.
+      const { error: deleteWorkingDaysError } = await supabase
+        .from("academic_working_days")
+        .delete()
+        .eq("academic_year_id", yearId);
+
+      if (deleteWorkingDaysError) throw deleteWorkingDaysError;
+
+      const workingDayRecords = workingDays.map((day) => ({
+        academic_year_id: yearId,
+        day_of_week: day,
+      }));
+
+      const { error: insertWorkingDaysError } = await supabase
+        .from("academic_working_days")
+        .insert(workingDayRecords);
+
+      if (insertWorkingDaysError) throw insertWorkingDaysError;
+
+      setAcademicYearId(yearId);
+      setAcademicConfigError(false);
+
       Alert.alert(
         "Configuration saved",
-        "Academic year and semester details have been saved to Supabase."
+        `Academic year, ${selectedSemesters.length} active semester(s), and working days have been saved to Supabase.`
       );
     } catch (error) {
       console.error("Error saving academic configuration:", error);
 
       Alert.alert(
         "Saving Error",
-        "Unable to save the academic configuration. Please check your connection and database permissions."
+        "Unable to save the complete academic configuration. Please check your connection and database permissions."
       );
     } finally {
       setIsSavingConfiguration(false);
@@ -671,35 +818,21 @@ export default function AcademicConfiguration() {
   };
 
   // --------------------------------------------------
-  // Reset screen values
+  // Reset form
   // --------------------------------------------------
 
   const handleReset = () => {
     Alert.alert(
       "Reset configuration",
-      "Restore the default academic configuration shown on this screen?",
+      "Restore the values currently stored in Supabase? No database records will be deleted.",
       [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
+        { text: "Cancel", style: "cancel" },
         {
           text: "Reset",
           style: "destructive",
           onPress: () => {
-            setAcademicYear("2026-2027");
-            setSemester("5");
-
-            setStartDate("2026-07-01");
-            setEndDate("2027-06-30");
-
-            setSemesterStartDate("2026-07-01");
-            setSemesterEndDate("2026-11-30");
-            setIsCustomSemesterDates(false);
-
-            setWorkingDays(DEFAULT_WORKING_DAYS);
-
             resetHolidayForm();
+            loadAcademicConfiguration();
             setIsAcademicYearExpanded(false);
             setIsHolidayExpanded(false);
           },
@@ -724,14 +857,10 @@ export default function AcademicConfiguration() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Text style={styles.backText}>
-            ‹  Back to Settings
-          </Text>
+          <Text style={styles.backText}>‹  Back to Settings</Text>
         </Pressable>
 
-        <Text style={styles.heading}>
-          Academic Configuration
-        </Text>
+        <Text style={styles.heading}>Academic Configuration</Text>
 
         <Text style={styles.subtitle}>
           Manage the institution's academic calendar and session details.
@@ -746,7 +875,23 @@ export default function AcademicConfiguration() {
           </View>
         )}
 
-        {/* Academic Year */}
+        {academicConfigError && (
+          <View style={styles.section}>
+            <Text style={styles.helper}>
+              Academic configuration could not be loaded. Saving is
+              disabled until the data is loaded successfully.
+            </Text>
+
+            <Pressable
+              style={styles.addButton}
+              onPress={loadAcademicConfiguration}
+            >
+              <Text style={styles.addButtonText}>Retry Loading</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* Academic year and semester selection */}
         <View style={styles.section}>
           <Pressable
             style={styles.collapsibleHeader}
@@ -757,7 +902,7 @@ export default function AcademicConfiguration() {
             accessibilityState={{ expanded: isAcademicYearExpanded }}
           >
             <Text style={[styles.sectionTitle, styles.collapsibleTitle]}>
-              Academic Year
+              Academic Year & Semesters
             </Text>
 
             <Text style={styles.chevron}>
@@ -767,9 +912,7 @@ export default function AcademicConfiguration() {
 
           {isAcademicYearExpanded && (
             <>
-              <Text style={styles.label}>
-                Academic year
-              </Text>
+              <Text style={styles.label}>Academic year</Text>
 
               <TextInput
                 value={academicYear}
@@ -779,50 +922,116 @@ export default function AcademicConfiguration() {
                 style={styles.input}
               />
 
-              <Text style={styles.label}>
-                Current semester
+              <Text style={styles.label}>Active semesters</Text>
+
+              <Text style={styles.helper}>
+                Select all semesters that should be active for this academic
+                year. Multiple semesters can be active simultaneously.
               </Text>
 
-              <View style={styles.optionsRow}>
-                {["1", "2", "3", "4", "5", "6", "7", "8"].map(
-                  (item) => (
-                    <Pressable
-                      key={item}
-                      disabled={!academicConfigLoaded}
-                      onPress={() => handleSemesterChange(item)}
-                      style={[
-                        styles.semesterButton,
-                        semester === item && styles.selectedButton,
-                        !academicConfigLoaded && styles.disabledButton,
-                      ]}
-                    >
-                      <Text
+              <View style={styles.semesterColumns}>
+                <View style={styles.semesterColumn}>
+                  <Text style={styles.semesterColumnTitle}>Odd Semesters</Text>
+                  {[1, 3, 5, 7].map((number) => {
+                    const selected = selectedSemesters.includes(number);
+
+                    return (
+                      <Pressable
+                        key={number}
+                        disabled={!academicConfigLoaded || academicConfigError}
+                        onPress={() => toggleSemester(number)}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: selected }}
                         style={[
-                          styles.semesterText,
-                          semester === item && styles.selectedText,
+                          styles.semesterOption,
+                          selected && styles.selectedButton,
+                          (!academicConfigLoaded || academicConfigError) &&
+                            styles.disabledButton,
                         ]}
                       >
-                        {item}
-                      </Text>
-                    </Pressable>
-                  )
-                )}
+                        <Text
+                          style={[
+                            styles.semesterOptionText,
+                            selected && styles.selectedText,
+                          ]}
+                        >
+                          Semester {number}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.semesterCheck,
+                            selected && styles.selectedText,
+                          ]}
+                        >
+                          {selected ? "✓" : "+"}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.semesterColumn}>
+                  <Text style={styles.semesterColumnTitle}>Even Semesters</Text>
+                  {[2, 4, 6, 8].map((number) => {
+                    const selected = selectedSemesters.includes(number);
+
+                    return (
+                      <Pressable
+                        key={number}
+                        disabled={!academicConfigLoaded || academicConfigError}
+                        onPress={() => toggleSemester(number)}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: selected }}
+                        style={[
+                          styles.semesterOption,
+                          selected && styles.selectedButton,
+                          (!academicConfigLoaded || academicConfigError) &&
+                            styles.disabledButton,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.semesterOptionText,
+                            selected && styles.selectedText,
+                          ]}
+                        >
+                          Semester {number}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.semesterCheck,
+                            selected && styles.selectedText,
+                          ]}
+                        >
+                          {selected ? "✓" : "+"}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
+
+              <Text style={styles.selectedSemesterSummary}>
+                Selected:{" "}
+                {selectedSemesters.length
+                  ? selectedSemesters
+                      .map((number) => `Semester ${number}`)
+                      .join(", ")
+                  : "None"}
+              </Text>
             </>
           )}
         </View>
 
         {isAcademicYearExpanded && (
           <>
-            {/* Session and Semester Duration */}
+            {/* Academic year and semester dates */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>
                 Academic Year Duration
               </Text>
 
-              <Text style={styles.label}>
-                Start date (YYYY-MM-DD)
-              </Text>
+              <Text style={styles.label}>Start date (YYYY-MM-DD)</Text>
 
               <TextInput
                 value={startDate}
@@ -832,9 +1041,7 @@ export default function AcademicConfiguration() {
                 style={styles.input}
               />
 
-              <Text style={styles.label}>
-                End date (YYYY-MM-DD)
-              </Text>
+              <Text style={styles.label}>End date (YYYY-MM-DD)</Text>
 
               <TextInput
                 value={endDate}
@@ -846,58 +1053,76 @@ export default function AcademicConfiguration() {
 
               <View style={styles.listDivider} />
 
-              <Text style={styles.sectionTitle}>
-                Semester {semester} Duration
+              <Text style={styles.sectionTitle}>Semester Durations</Text>
+
+              <Text style={styles.helper}>
+                Configure the dates separately for every selected semester.
               </Text>
 
-              <Text style={styles.label}>
-                Semester start date (YYYY-MM-DD)
-              </Text>
+              {selectedSemesters.length === 0 ? (
+                <Text style={styles.emptyText}>
+                  Select at least one semester above to configure its dates.
+                </Text>
+              ) : (
+                selectedSemesters.map((number) => {
+                  const dates = semesterDates[number];
 
-              <TextInput
-                value={semesterStartDate}
-                onChangeText={(value) => {
-                  setSemesterStartDate(value);
-                  setIsCustomSemesterDates(true);
-                }}
-                placeholder="2026-07-01"
-                placeholderTextColor={colors.textSecondary}
-                style={styles.input}
-              />
+                  if (!dates) return null;
 
-              <Text style={styles.label}>
-                Semester end date (YYYY-MM-DD)
-              </Text>
+                  return (
+                    <View key={number} style={styles.semesterDateCard}>
+                      <Text style={styles.semesterDateTitle}>
+                        Semester {number} Duration
+                      </Text>
 
-              <TextInput
-                value={semesterEndDate}
-                onChangeText={(value) => {
-                  setSemesterEndDate(value);
-                  setIsCustomSemesterDates(true);
-                }}
-                placeholder="2026-11-30"
-                placeholderTextColor={colors.textSecondary}
-                style={styles.input}
-              />
+                      <Text style={styles.label}>
+                        Start date (YYYY-MM-DD)
+                      </Text>
+
+                      <TextInput
+                        value={dates.startDate}
+                        onChangeText={(value) =>
+                          updateSemesterDate(number, "startDate", value)
+                        }
+                        placeholder="2026-07-01"
+                        placeholderTextColor={colors.textSecondary}
+                        style={styles.input}
+                      />
+
+                      <Text style={styles.label}>
+                        End date (YYYY-MM-DD)
+                      </Text>
+
+                      <TextInput
+                        value={dates.endDate}
+                        onChangeText={(value) =>
+                          updateSemesterDate(number, "endDate", value)
+                        }
+                        placeholder="2026-11-30"
+                        placeholderTextColor={colors.textSecondary}
+                        style={styles.input}
+                      />
+
+                      {dates.isCustom && (
+                        <Text style={styles.customDateNotice}>
+                          Custom semester dates
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })
+              )}
 
               <Text style={styles.helper}>
                 Odd semesters default to 1 July–30 November. Even semesters
-                default to 12 January–30 April. Editing either date marks the
+                default to 12 January–30 April. Editing a date marks that
                 semester as using custom dates.
               </Text>
-
-              {isCustomSemesterDates && (
-                <Text style={styles.customDateNotice}>
-                  Custom semester dates
-                </Text>
-              )}
             </View>
 
-            {/* Working Days */}
+            {/* Working days */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
-                Working Days
-              </Text>
+              <Text style={styles.sectionTitle}>Working Days</Text>
 
               <Text style={styles.helper}>
                 Select the days on which classes are normally conducted.
@@ -932,7 +1157,7 @@ export default function AcademicConfiguration() {
           </>
         )}
 
-        {/* Holiday Management */}
+        {/* Holiday management */}
         <View style={styles.section}>
           <Pressable
             style={styles.holidayHeader}
@@ -965,12 +1190,9 @@ export default function AcademicConfiguration() {
             </View>
           </Pressable>
 
-          {/* Holiday Form - collapsible */}
           {isHolidayExpanded && (
             <>
-              <Text style={styles.label}>
-                Holiday name
-              </Text>
+              <Text style={styles.label}>Holiday name</Text>
 
               <TextInput
                 value={holidayName}
@@ -980,9 +1202,7 @@ export default function AcademicConfiguration() {
                 style={styles.input}
               />
 
-              <Text style={styles.label}>
-                Holiday date (YYYY-MM-DD)
-              </Text>
+              <Text style={styles.label}>Holiday date (YYYY-MM-DD)</Text>
 
               <TextInput
                 value={holidayDate}
@@ -992,9 +1212,7 @@ export default function AcademicConfiguration() {
                 style={styles.input}
               />
 
-              <Text style={styles.label}>
-                Description (optional)
-              </Text>
+              <Text style={styles.label}>Description (optional)</Text>
 
               <TextInput
                 value={holidayDescription}
@@ -1006,9 +1224,7 @@ export default function AcademicConfiguration() {
                 textAlignVertical="top"
               />
 
-              <Text style={styles.label}>
-                Holiday applicability
-              </Text>
+              <Text style={styles.label}>Holiday applicability</Text>
 
               <View style={styles.scopeContainer}>
                 {scopeOptions.map((option) => {
@@ -1038,9 +1254,7 @@ export default function AcademicConfiguration() {
 
               {holidayScope === "selected" && (
                 <>
-                  <Text style={styles.label}>
-                    Departments / classes
-                  </Text>
+                  <Text style={styles.label}>Departments / classes</Text>
 
                   <TextInput
                     value={holidayGroups}
@@ -1062,31 +1276,34 @@ export default function AcademicConfiguration() {
                     style={styles.cancelButton}
                     onPress={resetHolidayForm}
                   >
-                    <Text style={styles.cancelText}>
-                      Cancel
-                    </Text>
+                    <Text style={styles.cancelText}>Cancel</Text>
                   </Pressable>
                 )}
 
                 <Pressable
-                  style={styles.addButton}
+                  style={[
+                    styles.addButton,
+                    isSavingHoliday && styles.disabledButton,
+                  ]}
                   onPress={handleAddHoliday}
+                  disabled={isSavingHoliday}
                 >
                   <Text style={styles.addButtonText}>
-                    {editingId ? "Update Holiday" : "+ Add Holiday"}
+                    {isSavingHoliday
+                      ? "Saving..."
+                      : editingId
+                        ? "Update Holiday"
+                        : "+ Add Holiday"}
                   </Text>
                 </Pressable>
               </View>
             </>
           )}
 
-          {/* Added Holidays - always visible */}
           <View style={styles.listDivider} />
 
           <View style={styles.addedHolidaysHeader}>
-            <Text style={styles.listTitle}>
-              Added Holidays
-            </Text>
+            <Text style={styles.listTitle}>Added Holidays</Text>
 
             <Text style={styles.addedHolidaysCount}>
               {holidays.length}{" "}
@@ -1105,9 +1322,7 @@ export default function AcademicConfiguration() {
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyIcon}>▦</Text>
 
-              <Text style={styles.emptyTitle}>
-                No holidays added
-              </Text>
+              <Text style={styles.emptyTitle}>No holidays added</Text>
 
               <Text style={styles.emptyText}>
                 Expand Holiday Management to add holidays to the calendar.
@@ -1122,17 +1337,14 @@ export default function AcademicConfiguration() {
               keyboardShouldPersistTaps="handled"
             >
               {sortedHolidays.map((holiday) => (
-                <View
-                  key={holiday.id}
-                  style={styles.holidayItem}
-                >
+                <View key={holiday.id} style={styles.holidayItem}>
                   <View style={styles.holidayDateBox}>
                     <Text style={styles.holidayDateDay}>
-                      {holiday.date.slice(8, 10)}
+                      {holiday.holiday_date.slice(8, 10)}
                     </Text>
 
                     <Text style={styles.holidayDateMonth}>
-                      {holiday.date.slice(5, 7)}
+                      {holiday.holiday_date.slice(5, 7)}
                     </Text>
                   </View>
 
@@ -1142,7 +1354,7 @@ export default function AcademicConfiguration() {
                     </Text>
 
                     <Text style={styles.holidayItemDate}>
-                      {formatDate(holiday.date)}
+                      {formatDate(holiday.holiday_date)}
                     </Text>
 
                     <Text style={styles.holidayScopeLabel}>
@@ -1161,18 +1373,14 @@ export default function AcademicConfiguration() {
                       onPress={() => handleEditHoliday(holiday)}
                       style={styles.actionButton}
                     >
-                      <Text style={styles.editText}>
-                        Edit
-                      </Text>
+                      <Text style={styles.editText}>Edit</Text>
                     </Pressable>
 
                     <Pressable
                       onPress={() => handleDeleteHoliday(holiday.id)}
                       style={styles.actionButton}
                     >
-                      <Text style={styles.deleteText}>
-                        Delete
-                      </Text>
+                      <Text style={styles.deleteText}>Delete</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -1181,25 +1389,29 @@ export default function AcademicConfiguration() {
           )}
         </View>
 
-        {/* Configuration Actions */}
+        {/* Configuration actions */}
         <View style={styles.actions}>
           <Pressable
             style={styles.resetButton}
             onPress={handleReset}
           >
-            <Text style={styles.resetText}>
-              Reset
-            </Text>
+            <Text style={styles.resetText}>Reset</Text>
           </Pressable>
 
           <Pressable
             style={[
               styles.saveButton,
-              (isSavingConfiguration || !academicConfigLoaded) &&
+              (isSavingConfiguration ||
+                !academicConfigLoaded ||
+                academicConfigError) &&
                 styles.disabledButton,
             ]}
             onPress={handleSaveConfiguration}
-            disabled={isSavingConfiguration || !academicConfigLoaded}
+            disabled={
+              isSavingConfiguration ||
+              !academicConfigLoaded ||
+              academicConfigError
+            }
           >
             <Text style={styles.saveText}>
               {isSavingConfiguration ? "Saving..." : "Save Configuration"}
@@ -1208,9 +1420,8 @@ export default function AcademicConfiguration() {
         </View>
 
         <Text style={styles.footer}>
-          Academic year and semester details are saved to Supabase.
-          Working days and holiday records are currently saved locally
-          on this device.
+          Academic year, active semesters, working days and holidays are
+          saved to Supabase.
         </Text>
       </ScrollView>
     </View>
@@ -1320,15 +1531,41 @@ const createStyles = (
       flexWrap: "wrap",
       gap: 9,
     },
-    semesterButton: {
-      width: 39,
-      height: 39,
-      borderRadius: 10,
+    semesterColumns: {
+      flexDirection: "row",
+      gap: 12,
+      marginTop: 8,
+    },
+    semesterColumn: {
+      flex: 1,
+      gap: 9,
+    },
+    semesterColumnTitle: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: "700",
+      marginBottom: 5,
+    },
+    semesterOption: {
+      minHeight: 48,
+      paddingHorizontal: 10,
+      borderRadius: 11,
       borderWidth: 1,
       borderColor: colors.border,
-      justifyContent: "center",
-      alignItems: "center",
       backgroundColor: colors.background,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    semesterOptionText: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: "600",
+    },
+    semesterCheck: {
+      color: colors.textSecondary,
+      fontSize: 18,
+      fontWeight: "700",
     },
     selectedButton: {
       backgroundColor: colors.primary,
@@ -1340,6 +1577,26 @@ const createStyles = (
     semesterText: {
       fontWeight: "600",
       color: colors.text,
+    },
+    selectedSemesterSummary: {
+      color: colors.primary,
+      fontSize: 12,
+      fontWeight: "700",
+      marginTop: 10,
+    },
+    semesterDateCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      padding: 13,
+      marginTop: 12,
+      backgroundColor: colors.background,
+    },
+    semesterDateTitle: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: "700",
+      marginBottom: 2,
     },
     selectedText: {
       color: "#FFFFFF",
@@ -1477,15 +1734,13 @@ const createStyles = (
       fontWeight: "600",
     },
     holidayListScroll: {
-    maxHeight: 220,
-    flexGrow: 0,
-    flexShrink: 1,
+      maxHeight: 220,
+      flexGrow: 0,
+      flexShrink: 1,
     },
-
     holidayListContent: {
-    paddingBottom: 4,
+      paddingBottom: 4,
     },
-    
     emptyContainer: {
       alignItems: "center",
       paddingVertical: 24,

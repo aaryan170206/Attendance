@@ -1,28 +1,30 @@
-
 import { useAttendance } from "@/context/AttendanceContext";
 import { useSubjects } from "@/context/SubjectContext";
 import { useTheme } from "@/context/ThemeContext";
-import { useMemo, useState } from "react";
+
 import {
+  getStudentAttendanceSession,
+  type CloudAttendanceStatus,
+  type StudentAttendanceSession,
+} from "@/lib/attendance";
+
+import { useEffect, useMemo, useState } from "react";
+
+import {
+  ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+
 import { Calendar } from "react-native-calendars";
 
-// Attendance types
 type AttendanceType = "theory" | "lab";
 
-type CalendarAttendanceStatus =
-  | "present"
-  | "absent"
-  | "leftEarly"
-  | "club"
-  | "partial"
-  | "noClass"
-  | "noLab";
+type CalendarAttendanceStatus = CloudAttendanceStatus;
 
 type StatusOption = {
   label: string;
@@ -31,7 +33,6 @@ type StatusOption = {
   color: string;
 };
 
-// Attendance status options
 const STATUS_OPTIONS: Record<AttendanceType, StatusOption[]> = {
   theory: [
     { label: "Present", value: "present", emoji: "✓", color: "present" },
@@ -41,6 +42,7 @@ const STATUS_OPTIONS: Record<AttendanceType, StatusOption[]> = {
     { label: "Partial", value: "partial", emoji: "½", color: "partial" },
     { label: "No Class", value: "noClass", emoji: "—", color: "noClass" },
   ],
+
   lab: [
     { label: "Present", value: "present", emoji: "✓", color: "labPresent" },
     { label: "Absent", value: "absent", emoji: "✕", color: "labAbsent" },
@@ -49,16 +51,118 @@ const STATUS_OPTIONS: Record<AttendanceType, StatusOption[]> = {
   ],
 };
 
+function getLocalDateString() {
+  const now = new Date();
+
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getSessionKey(subjectId: string, type: AttendanceType) {
+  return `${subjectId}:${type}`;
+}
+
 export default function CalendarScreen() {
   const { subjects } = useSubjects();
-  const { attendance, markAttendance } = useAttendance();
+
+  const {
+    attendance,
+    submitAttendance,
+    refreshAttendance,
+  } = useAttendance();
+
   const { colors } = useTheme();
 
   const [selectedDate, setSelectedDate] = useState("");
 
+  const [sessions, setSessions] = useState<
+    Record<string, StudentAttendanceSession | null>
+  >({});
+
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+
+  const [submittingKey, setSubmittingKey] = useState("");
+
+  const [refreshKey, setRefreshKey] = useState(0);
+
   const selectedAttendance = attendance[selectedDate] ?? {};
 
-  // Daily attendance summary
+  const today = getLocalDateString();
+
+  const isToday = selectedDate === today;
+
+  /*
+   * Load sessions for the selected date.
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSessions = async () => {
+      if (!selectedDate || subjects.length === 0) {
+        setSessions({});
+        return;
+      }
+
+      setSessionsLoading(true);
+
+      const result: Record<
+        string,
+        StudentAttendanceSession | null
+      > = {};
+
+      try {
+        const requests = subjects.flatMap((subject) => {
+          const types: AttendanceType[] = subject.hasLab
+            ? ["theory", "lab"]
+            : ["theory"];
+
+          return types.map(async (type) => {
+            const { data, error } =
+              await getStudentAttendanceSession(
+                subject.id,
+                selectedDate,
+                type
+              );
+
+            if (error) {
+              console.log(
+                `Could not load ${type} session for ${subject.name}:`,
+                error
+              );
+            }
+
+            result[getSessionKey(subject.id, type)] =
+              error ? null : data;
+          });
+        });
+
+        await Promise.all(requests);
+
+        if (!cancelled) {
+          setSessions(result);
+        }
+      } catch (error) {
+        console.log("Could not load attendance sessions:", error);
+      } finally {
+        if (!cancelled) {
+          setSessionsLoading(false);
+        }
+      }
+    };
+
+    loadSessions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate, subjects, refreshKey]);
+
+  /*
+   * Daily attendance summary.
+   */
   const summary = useMemo(() => {
     let marked = 0;
     let present = 0;
@@ -67,25 +171,26 @@ export default function CalendarScreen() {
     subjects.forEach((subject) => {
       const record = selectedAttendance[subject.name];
 
-      if (record?.theory) {
+      const theory = record?.theory;
+
+      if (theory && theory !== "pending") {
         marked++;
 
-        if (
-          record.theory === "present" ||
-          record.theory === "club"
-        ) {
+        if (theory === "present" || theory === "club") {
           present++;
-        } else if (record.theory === "absent") {
+        } else if (theory === "absent") {
           absent++;
         }
       }
 
-      if (subject.hasLab && record?.lab) {
+      const lab = record?.lab;
+
+      if (subject.hasLab && lab && lab !== "pending") {
         marked++;
 
-        if (record.lab === "present") {
+        if (lab === "present") {
           present++;
-        } else if (record.lab === "absent") {
+        } else if (lab === "absent") {
           absent++;
         }
       }
@@ -94,7 +199,9 @@ export default function CalendarScreen() {
     return { marked, present, absent };
   }, [subjects, selectedAttendance]);
 
-  // Dates with attendance records
+  /*
+   * Dates containing attendance records.
+   */
   const markedDates = useMemo(() => {
     const dates: Record<string, any> = {};
 
@@ -123,39 +230,124 @@ export default function CalendarScreen() {
     return dates;
   }, [attendance, selectedDate, colors.primary]);
 
-  // Get status color
   const getStatusColor = (colorKey: string) => {
     return colors[colorKey as keyof typeof colors] as string;
   };
 
-  // Mark attendance
-  const handleStatus = (
+  const formatDate = (date: string) => {
+    if (!date) return "";
+
+    return new Date(`${date}T00:00:00`).toLocaleDateString(
+      "en-IN",
+      {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }
+    );
+  };
+
+  /*
+   * Submit a status through the RPC.
+   */
+  const handleStatus = async (
+    subjectId: string,
     subjectName: string,
     type: AttendanceType,
     status: CalendarAttendanceStatus
   ) => {
-    markAttendance(selectedDate, subjectName, type, status);
+    const key = getSessionKey(subjectId, type);
+    const session = sessions[key];
+
+    if (!session || !session.can_submit) {
+      Alert.alert(
+        "Submission unavailable",
+        "There is no open attendance session for this class, or its submission deadline has passed."
+      );
+      return;
+    }
+
+    setSubmittingKey(key);
+
+    try {
+      const { error } = await submitAttendance(
+        session.session_id,
+        status
+      );
+
+      if (error) {
+        Alert.alert(
+          "Attendance not submitted",
+          error.message
+        );
+        return;
+      }
+
+      Alert.alert(
+        "Attendance submitted",
+        `${subjectName} ${type} attendance has been submitted successfully.`
+      );
+
+      /*
+       * The context refreshes attendance after
+       * a successful RPC. Refresh the session
+       * information as well.
+       */
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      Alert.alert(
+        "Error",
+        error instanceof Error
+          ? error.message
+          : "Could not submit attendance."
+      );
+    } finally {
+      setSubmittingKey("");
+    }
   };
 
-  // Format selected date
-  const formatDate = (date: string) => {
-    if (!date) return "";
-
-    return new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-  };
-
-  // Render attendance status buttons
+  /*
+   * Render the status section for one subject.
+   */
   const renderStatusSection = (
+    subjectId: string,
     subjectName: string,
     type: AttendanceType
   ) => {
     const currentStatus = selectedAttendance[subjectName]?.[type];
+
     const options = STATUS_OPTIONS[type];
+
+    const key = getSessionKey(subjectId, type);
+
+    const session = sessions[key];
+
+    const canSubmit = Boolean(
+      isToday && session?.can_submit
+    );
+
+    const isSubmitting = submittingKey === key;
+
+    let sessionMessage = "";
+
+    if (sessionsLoading) {
+      sessionMessage = "Checking attendance session...";
+    } else if (!session) {
+      sessionMessage = isToday
+        ? "Waiting for the teacher to open attendance."
+        : "No attendance session was found for this date.";
+    } else if (session.session_status === "cancelled") {
+      sessionMessage = "This attendance session was cancelled.";
+    } else if (session.session_status === "closed") {
+      sessionMessage = "This attendance session is closed.";
+    } else if (!isToday) {
+      sessionMessage = "Attendance submission is only available today.";
+    } else if (!session.can_submit) {
+      sessionMessage = "The department submission deadline has passed.";
+    } else {
+      sessionMessage = "Session open. You can submit or update your status.";
+    }
 
     return (
       <View style={styles.statusSection}>
@@ -168,7 +360,7 @@ export default function CalendarScreen() {
             {type === "theory" ? "Theory Class" : "Lab Session"}
           </Text>
 
-          {currentStatus && (
+          {currentStatus && currentStatus !== "pending" && (
             <View
               style={[
                 styles.markedBadge,
@@ -181,22 +373,64 @@ export default function CalendarScreen() {
                   { color: colors.primary },
                 ]}
               >
-                Marked
+                Submitted
               </Text>
             </View>
           )}
         </View>
 
+        <Text
+          style={[
+            styles.sessionMessage,
+            {
+              color: canSubmit
+                ? colors.present
+                : colors.textSecondary,
+            },
+          ]}
+        >
+          {sessionMessage}
+        </Text>
+
+        {currentStatus === "pending" && (
+          <Text
+            style={[
+              styles.sessionMessage,
+              { color: colors.textSecondary },
+            ]}
+          >
+            Your response is still pending.
+          </Text>
+        )}
+
+        {currentStatus === "onLeave" && (
+          <Text
+            style={[
+              styles.sessionMessage,
+              { color: colors.textSecondary },
+            ]}
+          >
+            Your attendance has been recorded as on leave.
+          </Text>
+        )}
+
         <View style={styles.statusGrid}>
           {options.map((option) => {
             const isSelected = currentStatus === option.value;
+
             const statusColor = getStatusColor(option.color);
 
             return (
               <Pressable
                 key={`${type}-${option.value}`}
+                disabled={!canSubmit || isSubmitting}
                 onPress={() =>
-                  handleStatus(subjectName, type, option.value)
+                  handleStatus(
+                    subjectId,
+                    subjectName,
+                    type,
+                    option.value
+                  )
                 }
                 style={({ pressed }) => [
                   styles.statusChip,
@@ -207,7 +441,12 @@ export default function CalendarScreen() {
                     borderColor: isSelected
                       ? statusColor
                       : colors.textSecondary,
-                    opacity: pressed ? 0.75 : 1,
+                    opacity:
+                      !canSubmit || isSubmitting
+                        ? 0.45
+                        : pressed
+                          ? 0.75
+                          : 1,
                   },
                 ]}
               >
@@ -215,7 +454,9 @@ export default function CalendarScreen() {
                   style={[
                     styles.statusEmoji,
                     {
-                      color: isSelected ? "#FFFFFF" : statusColor,
+                      color: isSelected
+                        ? "#FFFFFF"
+                        : statusColor,
                     },
                   ]}
                 >
@@ -226,7 +467,9 @@ export default function CalendarScreen() {
                   style={[
                     styles.statusLabel,
                     {
-                      color: isSelected ? "#FFFFFF" : colors.text,
+                      color: isSelected
+                        ? "#FFFFFF"
+                        : colors.text,
                     },
                   ]}
                 >
@@ -236,6 +479,13 @@ export default function CalendarScreen() {
             );
           })}
         </View>
+
+        {isSubmitting && (
+          <ActivityIndicator
+            style={styles.submitLoader}
+            color={colors.primary}
+          />
+        )}
       </View>
     );
   };
@@ -421,7 +671,7 @@ export default function CalendarScreen() {
                   { color: colors.textSecondary },
                 ]}
               >
-                Tap a date to mark attendance
+                Tap a date to view attendance
               </Text>
             </View>
 
@@ -442,44 +692,39 @@ export default function CalendarScreen() {
             </View>
           </View>
 
-          
-            <Calendar
-              key={colors.background}
-              onDayPress={(day) => {
-                setSelectedDate((current) =>
-                  current === day.dateString ? "" : day.dateString
-                );
-              }}
-              markedDates={markedDates}
-              theme={{
-                backgroundColor: colors.background,
-                calendarBackground: colors.card,
+          <Calendar
+            key={colors.background}
+            onDayPress={(day) => {
+              setSelectedDate((current) =>
+                current === day.dateString
+                  ? ""
+                  : day.dateString
+              );
+            }}
+            markedDates={markedDates}
+            theme={{
+              backgroundColor: colors.background,
+              calendarBackground: colors.card,
+              textSectionTitleColor: colors.textSecondary,
+              dayTextColor: colors.text,
+              monthTextColor: colors.text,
+              textDisabledColor: colors.textSecondary,
+              selectedDayBackgroundColor: colors.primary,
+              selectedDayTextColor: "#FFFFFF",
+              todayTextColor: "#EC4899",
+              arrowColor: colors.primary,
+              textDayFontWeight: "500",
+              textMonthFontWeight: "bold",
+              textDayHeaderFontWeight: "600",
+              textDayFontSize: 14,
+              textMonthFontSize: 17,
+            }}
+            style={[
+              styles.calendar,
+              { backgroundColor: colors.card },
+            ]}
+          />
 
-                textSectionTitleColor: colors.textSecondary,
-                dayTextColor: colors.text,
-                monthTextColor: colors.text,
-                textDisabledColor: colors.textSecondary,
-
-                selectedDayBackgroundColor: colors.primary,
-                selectedDayTextColor: "#FFFFFF",
-
-                todayTextColor: "#EC4899",
-                arrowColor: colors.primary,
-
-                textDayFontWeight: "500",
-                textMonthFontWeight: "bold",
-                textDayHeaderFontWeight: "600",
-
-                textDayFontSize: 14,
-                textMonthFontSize: 17,
-              }}
-              style={[
-                styles.calendar,
-                { backgroundColor: colors.card },
-              ]}
-            />
-
-          {/* Calendar Legend */}
           <View style={styles.legend}>
             <View style={styles.legendItem}>
               <View
@@ -519,7 +764,7 @@ export default function CalendarScreen() {
           </View>
         </View>
 
-        {/* Attendance Section */}
+        {/* Selected Date */}
         {selectedDate ? (
           <View style={styles.attendanceSection}>
             <View style={styles.dateHeading}>
@@ -561,6 +806,13 @@ export default function CalendarScreen() {
               </Pressable>
             </View>
 
+            {sessionsLoading && (
+              <ActivityIndicator
+                style={styles.pageLoader}
+                color={colors.primary}
+              />
+            )}
+
             {subjects.length === 0 ? (
               <View
                 style={[
@@ -597,7 +849,6 @@ export default function CalendarScreen() {
                     { backgroundColor: colors.card },
                   ]}
                 >
-                  {/* Subject Header */}
                   <View style={styles.subjectHeader}>
                     <View
                       style={[
@@ -645,7 +896,10 @@ export default function CalendarScreen() {
                           subject.hasLab
                             ? selectedAttendance[subject.name]?.lab
                             : null,
-                        ].filter(Boolean).length}
+                        ].filter(
+                          (status) =>
+                            status && status !== "pending"
+                        ).length}
                         /{subject.hasLab ? 2 : 1}
                       </Text>
                     </View>
@@ -658,10 +912,12 @@ export default function CalendarScreen() {
                     ]}
                   />
 
-                  {/* Theory */}
-                  {renderStatusSection(subject.name, "theory")}
+                  {renderStatusSection(
+                    subject.id,
+                    subject.name,
+                    "theory"
+                  )}
 
-                  {/* Lab */}
                   {subject.hasLab && (
                     <>
                       <View
@@ -671,7 +927,11 @@ export default function CalendarScreen() {
                         ]}
                       />
 
-                      {renderStatusSection(subject.name, "lab")}
+                      {renderStatusSection(
+                        subject.id,
+                        subject.name,
+                        "lab"
+                      )}
                     </>
                   )}
                 </View>
@@ -697,7 +957,7 @@ export default function CalendarScreen() {
                 { color: colors.textSecondary },
               ]}
             >
-              Select a date from the calendar above to view your subjects and mark attendance.
+              Select a date from the calendar above to view your attendance records and available sessions.
             </Text>
           </View>
         )}
@@ -708,7 +968,6 @@ export default function CalendarScreen() {
   );
 }
 
-// Styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1000,6 +1259,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
+  sessionMessage: {
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+
   statusGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1027,6 +1292,14 @@ const styles = StyleSheet.create({
   statusLabel: {
     fontSize: 11,
     fontWeight: "600",
+  },
+
+  submitLoader: {
+    marginTop: 12,
+  },
+
+  pageLoader: {
+    marginVertical: 15,
   },
 
   sectionDivider: {

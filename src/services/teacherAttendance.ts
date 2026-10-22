@@ -11,6 +11,7 @@ export type TeacherAttendanceRecord = {
   subject_id: string;
   attendance_date: string;
   type: "theory" | "lab";
+  session_id: string | null;
   status:
     | "present"
     | "absent"
@@ -19,9 +20,21 @@ export type TeacherAttendanceRecord = {
     | "partial"
     | "noClass"
     | "noLab"
-    | "onLeave";
+    | "onLeave"
+    | "pending";
   full_name: string | null;
   roll_number: string | null;
+};
+
+export type AttendanceSession = {
+  id: string;
+  class_id: string;
+  subject_id: string;
+  attendance_date: string;
+  type: "theory" | "lab";
+  status: "open" | "closed" | "cancelled";
+  opened_at: string;
+  closed_at: string | null;
 };
 
 export type AttendanceCorrectionResult = {
@@ -84,6 +97,184 @@ function getLocalToday(): string {
 }
 
 // --------------------------------------------------
+// OPEN ATTENDANCE SESSION
+// --------------------------------------------------
+
+export async function openAttendanceSession(
+  classId: string,
+  subjectId: string,
+  type: "theory" | "lab"
+): Promise<{
+  data: string | null;
+  error: Error | null;
+}> {
+  try {
+    if (!classId.trim()) {
+      throw new Error("Class ID is required.");
+    }
+
+    if (!subjectId.trim()) {
+      throw new Error("Subject ID is required.");
+    }
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError) throw userError;
+
+    if (!user) {
+      throw new Error("No authenticated teacher found.");
+    }
+
+    const { data, error } = await supabase.rpc(
+      "open_attendance_session",
+      {
+        p_class_id: classId,
+        p_subject_id: subjectId,
+        p_type: type,
+      }
+    );
+
+    if (error) throw error;
+
+    if (typeof data !== "string" || !data) {
+      throw new Error("The session could not be opened.");
+    }
+
+    return {
+      data,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      data: null,
+      error:
+        error instanceof Error
+          ? error
+          : new Error("Unable to open attendance session."),
+    };
+  }
+}
+
+
+// --------------------------------------------------
+// CLOSE ATTENDANCE SESSION
+// --------------------------------------------------
+
+export async function closeAttendanceSession(
+  sessionId: string
+): Promise<{
+  data: string | null;
+  error: Error | null;
+}> {
+  try {
+    if (!sessionId.trim()) {
+      throw new Error("Attendance session ID is required.");
+    }
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError) throw userError;
+
+    if (!user) {
+      throw new Error("No authenticated teacher found.");
+    }
+
+    const { data, error } = await supabase.rpc(
+      "close_attendance_session",
+      {
+        p_session_id: sessionId,
+      }
+    );
+
+    if (error) throw error;
+
+    if (typeof data !== "string" || !data) {
+      throw new Error("The attendance session could not be closed.");
+    }
+
+    return {
+      data,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      data: null,
+      error:
+        error instanceof Error
+          ? error
+          : new Error("Unable to close attendance session."),
+    };
+  }
+}
+
+// --------------------------------------------------
+// GET ATTENDANCE SESSION
+// --------------------------------------------------
+
+export async function getAttendanceSession(
+  classId: string,
+  subjectId: string,
+  attendanceDate: string,
+  type: "theory" | "lab"
+): Promise<{
+  data: AttendanceSession | null;
+  error: Error | null;
+}> {
+  try {
+    if (!classId.trim()) {
+      throw new Error("Class ID is required.");
+    }
+
+    if (!subjectId.trim()) {
+      throw new Error("Subject ID is required.");
+    }
+
+    if (!validateAttendanceDate(attendanceDate)) {
+      throw new Error("Invalid attendance date.");
+    }
+
+    const { data, error } = await supabase
+      .from("attendance_sessions")
+      .select(`
+        id,
+        class_id,
+        subject_id,
+        attendance_date,
+        type,
+        status,
+        opened_at,
+        closed_at
+      `)
+      .eq("class_id", classId)
+      .eq("subject_id", subjectId)
+      .eq("attendance_date", attendanceDate)
+      .eq("type", type)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return {
+      data: data as AttendanceSession | null,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      data: null,
+      error:
+        error instanceof Error
+          ? error
+          : new Error("Unable to retrieve attendance session."),
+    };
+  }
+}
+
+// --------------------------------------------------
 // GET ATTENDANCE FOR A CLASS, SUBJECT AND DATE
 // --------------------------------------------------
 
@@ -114,48 +305,54 @@ export async function getTodayTeacherAttendance(
     }
 
     // Verify teacher assignment.
-    const { data: assignment, error: assignmentError } = await supabase
-      .from("teaching_assignments")
-      .select("id")
-      .eq("teacher_id", user.id)
-      .eq("class_id", classId)
-      .eq("subject_id", subjectId)
-      .maybeSingle();
+    const { data: assignment, error: assignmentError } =
+      await supabase
+        .from("teaching_assignments")
+        .select("id")
+        .eq("teacher_id", user.id)
+        .eq("class_id", classId)
+        .eq("subject_id", subjectId)
+        .maybeSingle();
 
     if (assignmentError) throw assignmentError;
 
     if (!assignment) {
-      throw new Error("You are not assigned to this class and subject.");
+      throw new Error(
+        "You are not assigned to this class and subject."
+      );
     }
 
     // Fetch attendance.
-    const { data: attendance, error: attendanceError } = await supabase
-      .from("attendance")
-      .select(`
-        id,
-        student_id,
-        subject_id,
-        attendance_date,
-        type,
-        status,
-        student_profiles (
-          roll_number,
-          profiles (
-            full_name
+    const { data: attendance, error: attendanceError } =
+      await supabase
+        .from("attendance")
+        .select(`
+          id,
+          student_id,
+          subject_id,
+          attendance_date,
+          type,
+          status,
+          session_id,
+          student_profiles (
+            roll_number,
+            profiles (
+              full_name
+            )
           )
-        )
-      `)
-      .eq("subject_id", subjectId)
-      .eq("attendance_date", attendanceDate)
-      .order("created_at", { ascending: true });
+        `)
+        .eq("subject_id", subjectId)
+        .eq("attendance_date", attendanceDate)
+        .order("created_at", { ascending: true });
 
     if (attendanceError) throw attendanceError;
 
     // Fetch enrolled students.
-    const { data: enrollments, error: enrollmentError } = await supabase
-      .from("enrollments")
-      .select("student_id")
-      .eq("class_id", classId);
+    const { data: enrollments, error: enrollmentError } =
+      await supabase
+        .from("enrollments")
+        .select("student_id")
+        .eq("class_id", classId);
 
     if (enrollmentError) throw enrollmentError;
 
@@ -163,8 +360,12 @@ export async function getTodayTeacherAttendance(
       (enrollments ?? []).map((item) => item.student_id)
     );
 
-    const records: TeacherAttendanceRecord[] = (attendance ?? [])
-      .filter((item) => enrolledStudentIds.has(item.student_id))
+    const records: TeacherAttendanceRecord[] = (
+      attendance ?? []
+    )
+      .filter((item) =>
+        enrolledStudentIds.has(item.student_id)
+      )
       .map((item) => {
         const profile = item.student_profiles as any;
 
@@ -174,9 +375,12 @@ export async function getTodayTeacherAttendance(
           subject_id: item.subject_id,
           attendance_date: item.attendance_date,
           type: item.type,
+          session_id: item.session_id,
           status: item.status,
-          full_name: profile?.profiles?.full_name ?? null,
-          roll_number: profile?.roll_number ?? null,
+          full_name:
+            profile?.profiles?.full_name ?? null,
+          roll_number:
+            profile?.roll_number ?? null,
         };
       });
 
@@ -215,7 +419,9 @@ export async function correctAttendance(
     const trimmedReason = reason.trim();
 
     if (!trimmedReason) {
-      throw new Error("Please provide a reason for the correction.");
+      throw new Error(
+        "Please provide a reason for the correction."
+      );
     }
 
     const {
@@ -286,26 +492,30 @@ export async function getCorrectionHistory(
     }
 
     // Verify teacher assignment to this exact class and subject.
-    const { data: assignment, error: assignmentError } = await supabase
-      .from("teaching_assignments")
-      .select("id")
-      .eq("teacher_id", user.id)
-      .eq("class_id", classId)
-      .eq("subject_id", subjectId)
-      .maybeSingle();
+    const { data: assignment, error: assignmentError } =
+      await supabase
+        .from("teaching_assignments")
+        .select("id")
+        .eq("teacher_id", user.id)
+        .eq("class_id", classId)
+        .eq("subject_id", subjectId)
+        .maybeSingle();
 
     if (assignmentError) throw assignmentError;
 
     if (!assignment) {
-      throw new Error("You are not assigned to this class and subject.");
+      throw new Error(
+        "You are not assigned to this class and subject."
+      );
     }
 
     // Fetch attendance IDs for the selected subject and date.
-    const { data: attendance, error: attendanceError } = await supabase
-      .from("attendance")
-      .select("id, attendance_date, type, student_id")
-      .eq("subject_id", subjectId)
-      .eq("attendance_date", selectedDate);
+    const { data: attendance, error: attendanceError } =
+      await supabase
+        .from("attendance")
+        .select("id, attendance_date, type, student_id")
+        .eq("subject_id", subjectId)
+        .eq("attendance_date", selectedDate);
 
     if (attendanceError) throw attendanceError;
 
@@ -317,10 +527,11 @@ export async function getCorrectionHistory(
     }
 
     // Keep only students enrolled in the selected class.
-    const { data: enrollments, error: enrollmentError } = await supabase
-      .from("enrollments")
-      .select("student_id")
-      .eq("class_id", classId);
+    const { data: enrollments, error: enrollmentError } =
+      await supabase
+        .from("enrollments")
+        .select("student_id")
+        .eq("class_id", classId);
 
     if (enrollmentError) throw enrollmentError;
 
@@ -332,7 +543,9 @@ export async function getCorrectionHistory(
       enrolledStudentIds.has(item.student_id)
     );
 
-    const attendanceIds = validAttendance.map((item) => item.id);
+    const attendanceIds = validAttendance.map(
+      (item) => item.id
+    );
 
     if (attendanceIds.length === 0) {
       return {
@@ -374,16 +587,17 @@ export async function getCorrectionHistory(
       ...new Set(logs.map((item) => item.student_id)),
     ];
 
-    const { data: students, error: studentsError } = await supabase
-      .from("student_profiles")
-      .select(`
-        id,
-        roll_number,
-        profiles (
-          full_name
-        )
-      `)
-      .in("id", studentIds);
+    const { data: students, error: studentsError } =
+      await supabase
+        .from("student_profiles")
+        .select(`
+          id,
+          roll_number,
+          profiles (
+            full_name
+          )
+        `)
+        .in("id", studentIds);
 
     if (studentsError) throw studentsError;
 
@@ -392,10 +606,11 @@ export async function getCorrectionHistory(
       ...new Set(logs.map((item) => item.teacher_id)),
     ];
 
-    const { data: teachers, error: teachersError } = await supabase
-      .from("profiles")
-      .select("id, full_name")
-      .in("id", teacherIds);
+    const { data: teachers, error: teachersError } =
+      await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", teacherIds);
 
     if (teachersError) throw teachersError;
 
@@ -409,7 +624,8 @@ export async function getCorrectionHistory(
         item.id,
         {
           roll_number: item.roll_number,
-          full_name: (item.profiles as any)?.full_name ?? null,
+          full_name:
+            (item.profiles as any)?.full_name ?? null,
         },
       ])
     );
@@ -424,7 +640,10 @@ export async function getCorrectionHistory(
     // Combine correction logs with attendance and profile details.
     const records: TeacherCorrectionHistoryRecord[] = logs
       .map((log) => {
-        const attendanceRecord = attendanceMap.get(log.attendance_id);
+        const attendanceRecord = attendanceMap.get(
+          log.attendance_id
+        );
+
         const student = studentMap.get(log.student_id);
 
         if (!attendanceRecord) return null;
@@ -443,11 +662,14 @@ export async function getCorrectionHistory(
           created_at: log.created_at,
           student_name: student?.full_name ?? null,
           roll_number: student?.roll_number ?? null,
-          teacher_name: teacherMap.get(log.teacher_id) ?? null,
+          teacher_name:
+            teacherMap.get(log.teacher_id) ?? null,
         };
       })
       .filter(
-        (record): record is TeacherCorrectionHistoryRecord =>
+        (
+          record
+        ): record is TeacherCorrectionHistoryRecord =>
           record !== null
       );
 
