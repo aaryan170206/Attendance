@@ -611,7 +611,7 @@ export default function AdminDashboard() {
         {statsError ? (
           <Text
             style={{
-              color: "#DC2626",
+              color:"#DC2626",
               fontSize: 12,
               marginTop: 4,
             }}
