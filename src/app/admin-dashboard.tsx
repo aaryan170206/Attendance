@@ -1,6 +1,14 @@
 
 import { useTheme } from "@/context/ThemeContext";
-import { getAdminDashboardStats, type AdminDashboardStats } from "@/services/adminDashboard";
+import { supabase } from "@/lib/supabase";
+import {
+  getAdminDashboardStats,
+  getMonthlyDepartmentAttendance,
+  getRecentActivity,
+  type AdminDashboardStats,
+  type MonthlyDepartmentAttendance,
+  type RecentActivity,
+} from "@/services/adminDashboard";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useState } from "react";
 import {
@@ -18,52 +26,6 @@ import Svg, {
   Path,
   Text as SvgText,
 } from "react-native-svg";
-
-// --------------------------------------------------
-// SAMPLE DATA - Replace with Supabase data later
-// --------------------------------------------------
-
-const departments = [
-  {
-    id: "BBA",
-    name: "BBA",
-    attendance: 86,
-    data: [
-      { month: "Jun", year1: 78, year2: 82, year3: 75 },
-      { month: "Jul", year1: 81, year2: 84, year3: 79 },
-      { month: "Aug", year1: 76, year2: 80, year3: 83 },
-      { month: "Sep", year1: 85, year2: 86, year3: 81 },
-      { month: "Oct", year1: 88, year2: 83, year3: 86 },
-      { month: "Nov", year1: 86, year2: 89, year3: 84 },
-    ],
-  },
-  {
-    id: "BCA",
-    name: "BCA",
-    attendance: 82,
-    data: [
-      { month: "Jun", year1: 75, year2: 80, year3: 78 },
-      { month: "Jul", year1: 79, year2: 82, year3: 81 },
-      { month: "Aug", year1: 83, year2: 77, year3: 80 },
-      { month: "Sep", year1: 80, year2: 85, year3: 84 },
-      { month: "Oct", year1: 86, year2: 82, year3: 87 },
-      { month: "Nov", year1: 84, year2: 88, year3: 85 },
-    ],
-  },
-  {
-    id: "B.Com",
-    name: "B.Com",
-    attendance: 79,
-    data: [
-      { month: "Jun", year1: 72, year2: 76, year3: 80 },
-      { month: "Jul", year1: 75, year2: 79, year3: 82 },
-      { month: "Aug", year1: 78, year2: 81, year3: 77 },
-      { month: "Sep", year1: 80, year2: 83, year3: 84 },
-      { month: "Oct", year1: 82, year2: 85, year3: 81 },
-      { month: "Nov", year1: 85, year2: 82, year3: 87 },
-    ],
-  },
-];
 
 // --------------------------------------------------
 // LINE GRAPH COMPONENT
@@ -128,10 +90,13 @@ function AttendanceGraph({
       ))}
 
       {series.map((item) => {
-        const points = data.map((entry, index) => ({
-          x: getX(index),
-          y: getY(Number(entry[item.key] ?? 0)),
-        }));
+        const points = data
+          .map((entry, index) => {
+            const value = entry[item.key];
+            if (value == null || !Number.isFinite(Number(value))) return null;
+            return { x: getX(index), y: getY(Number(value)), index };
+          })
+          .filter((point): point is { x: number; y: number; index: number } => point !== null);
 
         const path = points
           .map(
@@ -142,18 +107,18 @@ function AttendanceGraph({
 
         return (
           <React.Fragment key={item.key}>
-            <Path
+            {points.length > 0 ? <Path
               d={path}
               stroke={item.color}
               strokeWidth={2.8}
               fill="none"
               strokeLinecap="round"
               strokeLinejoin="round"
-            />
+            /> : null}
 
             {points.map((point, index) => (
               <Circle
-                key={index}
+                key={point.index}
                 cx={point.x}
                 cy={point.y}
                 r={3.5}
@@ -197,6 +162,13 @@ export default function AdminDashboard() {
     useState<AdminDashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
+  const [monthlyAttendance, setMonthlyAttendance] =
+    useState<MonthlyDepartmentAttendance[]>([]);
+  const [monthlyLoading, setMonthlyLoading] = useState(true);
+  const [monthlyError, setMonthlyError] = useState<string | null>(null);
+  const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [activityError, setActivityError] = useState<string | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -223,6 +195,82 @@ export default function AdminDashboard() {
 
     return () => {
       isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadMonthlyAttendance = async () => {
+      setMonthlyLoading(true);
+      setMonthlyError(null);
+
+      const result = await getMonthlyDepartmentAttendance();
+      if (!isActive) return;
+
+      if (result.error) {
+        setMonthlyError(result.error);
+        setMonthlyAttendance([]);
+      } else {
+        setMonthlyAttendance(result.data ?? []);
+      }
+
+      setMonthlyLoading(false);
+    };
+
+    loadMonthlyAttendance();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadRecentActivity = async (showLoader = false) => {
+      if (showLoader) {
+        setActivityLoading(true);
+      }
+
+      setActivityError(null);
+
+      const result = await getRecentActivity();
+
+      if (!isActive) return;
+
+      if (result.error) {
+        setActivityError(result.error);
+        setRecentActivities([]);
+      } else {
+        setRecentActivities(result.data ?? []);
+      }
+
+      setActivityLoading(false);
+    };
+
+    // Load existing correction records when the dashboard opens.
+    loadRecentActivity(true);
+
+    // Refresh the activity list whenever a new correction is inserted.
+    const channel = supabase
+      .channel("admin-recent-activity")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "attendance_correction_logs",
+        },
+        () => {
+          loadRecentActivity();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isActive = false;
+      supabase.removeChannel(channel);
     };
   }, []);
 
@@ -261,9 +309,50 @@ export default function AdminDashboard() {
   const contentWidth = Math.min(width - 32, 1000);
   const graphWidth = Math.max(contentWidth - 64, 240);
 
-  const selectedDept = departments.find(
-    (dept) => dept.id === selectedDepartment
-  );
+  const departmentColors = ["#2563EB", "#A855F7", "#0D9488", "#EA580C", "#DB2777", "#0891B2"];
+
+  const departments = Array.from(
+    monthlyAttendance.reduce((map, item) => {
+      if (!map.has(item.departmentId)) {
+        map.set(item.departmentId, {
+          id: item.departmentId,
+          name: item.departmentName,
+          chartColor: item.chartColor,
+          present: 0,
+          absent: 0,
+          leftEarly: 0,
+          onLeave: 0,
+          pending: 0,
+        });
+      }
+      const department = map.get(item.departmentId)!;
+      department.present += item.present;
+      department.absent += item.absent;
+      department.leftEarly += item.leftEarly;
+      department.onLeave += item.onLeave;
+      department.pending += item.pending;
+      return map;
+    }, new Map<string, {
+      id: string; name: string; chartColor: string | null;
+      present: number; absent: number; leftEarly: number;
+      onLeave: number; pending: number;
+    }>() ).values()
+  ).map((department, index) => {
+    const eligible = department.present + department.absent + department.leftEarly;
+    return {
+      ...department,
+      attendance: eligible === 0 ? null : Number((((department.present + department.leftEarly * 0.5) / eligible) * 100).toFixed(1)),
+      color: department.chartColor || departmentColors[index % departmentColors.length],
+      data: monthlyAttendance
+        .filter((item) => item.departmentId === department.id)
+        .map((item) => ({
+          month: new Date(`${item.month}T00:00:00`).toLocaleDateString("en", { month: "short", year: "2-digit" }),
+          attendance: item.attendance,
+        })),
+    };
+  });
+
+  const selectedDept = departments.find((dept) => dept.id === selectedDepartment);
 
   const styles = StyleSheet.create({
     container: {
@@ -370,26 +459,37 @@ export default function AdminDashboard() {
     },
   });
 
-  const mainSeries: GraphSeries[] = [
-    { label: "BBA", key: "bba", color: "#2563EB" },
-    { label: "BCA", key: "bca", color: "#A855F7" },
-    { label: "B.Com", key: "bcom", color: "#0D9488" },
-  ];
+  const mainSeries: GraphSeries[] = departments.map((department) => ({
+    label: department.name,
+    key: department.id,
+    color: department.color,
+  }));
 
-  const mainData = [
-    { month: "Jun", bba: 78, bca: 75, bcom: 80 },
-    { month: "Jul", bba: 81, bca: 79, bcom: 82 },
-    { month: "Aug", bba: 76, bca: 83, bcom: 78 },
-    { month: "Sep", bba: 85, bca: 80, bcom: 84 },
-    { month: "Oct", bba: 88, bca: 86, bcom: 82 },
-    { month: "Nov", bba: 86, bca: 84, bcom: 85 },
-  ];
+  const monthKeys = Array.from(new Set(monthlyAttendance.map((item) => item.month))).sort();
+  const mainData = monthKeys.map((month) => {
+    const row: Record<string, string | number | null> = {
+      month: new Date(`${month}T00:00:00`).toLocaleDateString("en", { month: "short", year: "2-digit" }),
+    };
+    departments.forEach((department) => {
+      const match = monthlyAttendance.find(
+        (item) => item.month === month && item.departmentId === department.id
+      );
+      row[department.id] = match?.attendance ?? null;
+    });
+    return row;
+  });
 
-  const yearSeries: GraphSeries[] = [
-    { label: "2024–25", key: "year1", color: "#2563EB" },
-    { label: "2025–26", key: "year2", color: "#A855F7" },
-    { label: "2026–27", key: "year3", color: "#0D9488" },
-  ];
+  const selectedDeptSeries: GraphSeries[] = selectedDept
+    ? [{ label: selectedDept.name, key: "attendance", color: selectedDept.color }]
+    : [];
+  const selectedDeptData = selectedDept
+    ? monthlyAttendance
+        .filter((item) => item.departmentId === selectedDept.id)
+        .map((item) => ({
+          month: new Date(`${item.month}T00:00:00`).toLocaleDateString("en", { month: "short", year: "2-digit" }),
+          attendance: item.attendance,
+        }))
+    : [];
 
   const openAction = (action: string) => {
     Alert.alert(
@@ -434,12 +534,12 @@ export default function AdminDashboard() {
             {selectedDept.name} Analytics
           </Text>
           <Text style={styles.subtitle}>
-            Three academic years · Overall attendance
+            Monthly attendance · All available records
           </Text>
 
           <View style={[styles.card, { marginTop: 22 }]}>
             <Text style={styles.sectionTitle}>
-              Three-Year Attendance Comparison
+              Monthly Attendance Trend
             </Text>
             <Text style={[styles.mutedText, { marginTop: 5 }]}>
               Monthly attendance percentage
@@ -447,8 +547,8 @@ export default function AdminDashboard() {
 
             <View style={{ marginTop: 20 }}>
               <AttendanceGraph
-                data={selectedDept.data}
-                series={yearSeries}
+                data={selectedDeptData}
+                series={selectedDeptSeries}
                 width={graphWidth}
                 colors={colors}
               />
@@ -462,7 +562,7 @@ export default function AdminDashboard() {
                 marginTop: 12,
               }}
             >
-              {yearSeries.map((item) => (
+              {selectedDeptSeries.map((item) => (
                 <View
                   key={item.key}
                   style={{
@@ -508,7 +608,7 @@ export default function AdminDashboard() {
                 marginTop: 5,
               }}
             >
-              {selectedDept.attendance}%
+              {selectedDept.attendance == null ? "—" : `${selectedDept.attendance}%`}
             </Text>
           </View>
 
@@ -518,9 +618,9 @@ export default function AdminDashboard() {
               { marginTop: 18, lineHeight: 19 },
             ]}
           >
-            Historical comparisons will use the actual academic-year
-            records stored in Supabase. The current graph uses
-            illustrative sample figures.
+            Attendance is calculated from actual Supabase records. Present counts as 100%,
+            left early as 50%, and absent as 0%. Approved leave and pending records are
+            excluded from the percentage.
           </Text>
         </ScrollView>
       </View>
@@ -630,6 +730,14 @@ export default function AdminDashboard() {
             Compare overall attendance across departments
           </Text>
 
+          {monthlyLoading ? (
+            <Text style={[styles.mutedText, { marginTop: 18 }]}>Loading monthly attendance...</Text>
+          ) : monthlyError ? (
+            <Text style={{ color: "#DC2626", fontSize: 12, marginTop: 18 }}>{monthlyError}</Text>
+          ) : mainData.length === 0 ? (
+            <Text style={[styles.mutedText, { marginTop: 18 }]}>No monthly attendance data available yet.</Text>
+          ) : (
+          <>
           <View style={{ marginTop: 18 }}>
             <AttendanceGraph
               data={mainData}
@@ -670,9 +778,12 @@ export default function AdminDashboard() {
               </View>
             ))}
           </View>
+          </>
+          )}
 
           <Pressable
-            onPress={() => setSelectedDepartment("BBA")}
+            disabled={departments.length === 0}
+            onPress={() => departments[0] && setSelectedDepartment(departments[0].id)}
             style={{
               marginTop: 20,
               paddingTop: 14,
@@ -719,7 +830,13 @@ export default function AdminDashboard() {
           </Text>
         </View>
 
-        {departments.map((dept) => (
+        {monthlyLoading ? (
+          <Text style={[styles.mutedText, { marginBottom: 12 }]}>Loading department attendance...</Text>
+        ) : monthlyError ? (
+          <Text style={{ color: "#DC2626", fontSize: 12, marginBottom: 12 }}>{monthlyError}</Text>
+        ) : departments.length === 0 ? (
+          <Text style={[styles.mutedText, { marginBottom: 12 }]}>No department attendance records found yet.</Text>
+        ) : departments.map((dept) => (
           <Pressable
             key={dept.id}
             onPress={() => setSelectedDepartment(dept.id)}
@@ -751,7 +868,7 @@ export default function AdminDashboard() {
                 }}
               >
                 <Text style={styles.departmentValue}>
-                  {dept.attendance}%
+                  {dept.attendance == null ? "—" : `${dept.attendance}%`}
                 </Text>
                 <Ionicons
                   name="chevron-forward"
@@ -835,73 +952,78 @@ export default function AdminDashboard() {
         </Text>
 
         <View style={styles.card}>
-          {[
-            {
-              title: "Attendance session opened",
-              detail: "BBA · Theory",
-              time: "Today",
-              icon: "calendar-outline" as const,
-            },
-            {
-              title: "New student added",
-              detail: "Student registration",
-              time: "Yesterday",
-              icon: "person-add-outline" as const,
-            },
-            {
-              title: "Department settings updated",
-              detail: "Attendance thresholds",
-              time: "Recently",
-              icon: "settings-outline" as const,
-            },
-          ].map((activity, index) => (
-            <View
-              key={activity.title}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                paddingVertical: 12,
-                borderBottomWidth: index === 2 ? 0 : 1,
-                borderBottomColor: colors.border,
-                gap: 12,
-              }}
-            >
-              <View
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 11,
-                  backgroundColor: colors.cardSecondary,
-                  justifyContent: "center",
-                  alignItems: "center",
-                }}
-              >
-                <Ionicons
-                  name={activity.icon}
-                  size={18}
-                  color={colors.primary}
-                />
-              </View>
+          {activityLoading ? (
+            <Text style={[styles.mutedText, { paddingVertical: 14 }]}>Loading recent activity...</Text>
+          ) : activityError ? (
+            <Text style={{ color: "#DC2626", fontSize: 12, paddingVertical: 14 }}>
+              Unable to load recent activity: {activityError}
+            </Text>
+          ) : recentActivities.length === 0 ? (
+            <Text style={[styles.mutedText, { paddingVertical: 14 }]}>No attendance corrections have been recorded yet.</Text>
+          ) : (
+            recentActivities.map((activity, index) => {
+              const oldStatus = activity.oldStatus.replace(/([A-Z])/g, " $1");
+              const newStatus = activity.newStatus.replace(/([A-Z])/g, " $1");
+              const activityDate = new Date(activity.createdAt);
+              const formattedTime = Number.isNaN(activityDate.getTime())
+                ? activity.createdAt
+                : activityDate.toLocaleString([], {
+                    day: "numeric",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
 
-              <View style={{ flex: 1 }}>
-                <Text style={styles.activityText}>
-                  {activity.title}
-                </Text>
-                <Text
-                  style={[
-                    styles.mutedText,
-                    { marginTop: 3 },
-                  ]}
+              return (
+                <View
+                  key={activity.id}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "flex-start",
+                    paddingVertical: 13,
+                    borderBottomWidth: index === recentActivities.length - 1 ? 0 : 1,
+                    borderBottomColor: colors.border,
+                    gap: 12,
+                  }}
                 >
-                  {activity.detail}
-                </Text>
-              </View>
+                  <View
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 11,
+                      backgroundColor: colors.cardSecondary,
+                      justifyContent: "center",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Ionicons
+                      name="create-outline"
+                      size={18}
+                      color={colors.primary}
+                    />
+                  </View>
 
-              <Text style={styles.mutedText}>
-                {activity.time}
-              </Text>
-            </View>
-          ))}
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.activityText}>
+                      Attendance corrected for {activity.studentName}
+                    </Text>
+                    <Text style={[styles.mutedText, { marginTop: 4, lineHeight: 18 }]}>
+                      {activity.subjectName} · {activity.teacherName}
+                    </Text>
+                    <Text style={[styles.mutedText, { marginTop: 3, lineHeight: 18 }]}>
+                      {oldStatus} → {newStatus}
+                    </Text>
+                    <Text style={[styles.mutedText, { marginTop: 3, lineHeight: 18 }]}>
+                      Reason: {activity.reason}
+                    </Text>
+                    <Text style={[styles.mutedText, { marginTop: 5 }]}>
+                      {formattedTime}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })
+          )}
         </View>
 
         <Text

@@ -419,9 +419,7 @@ export async function correctAttendance(
     const trimmedReason = reason.trim();
 
     if (!trimmedReason) {
-      throw new Error(
-        "Please provide a reason for the correction."
-      );
+      throw new Error("Please provide a reason for the correction.");
     }
 
     const {
@@ -444,19 +442,44 @@ export async function correctAttendance(
       }
     );
 
-    if (error) throw error;
+    if (error) {
+      const errorMessage = [
+        `Message: ${error.message || "Unknown error"}`,
+        `Code: ${error.code || "N/A"}`,
+        `Details: ${error.details || "N/A"}`,
+        `Hint: ${error.hint || "N/A"}`,
+      ].join("\n");
+
+      console.error("ATTENDANCE CORRECTION RPC ERROR:", errorMessage);
+
+      return {
+        data: null,
+        error: new Error(errorMessage),
+      };
+    }
+
+    if (!data) {
+      throw new Error("Correction returned no data from the database.");
+    }
+
+    console.log("Attendance correction successful:", data);
 
     return {
       data: data as AttendanceCorrectionResult,
       error: null,
     };
-  } catch (error) {
+
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unable to correct attendance.";
+
+    console.error("ATTENDANCE CORRECTION ERROR:", message);
+
     return {
       data: null,
-      error:
-        error instanceof Error
-          ? error
-          : new Error("Unable to correct attendance."),
+      error: new Error(message),
     };
   }
 }
