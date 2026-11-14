@@ -8,6 +8,7 @@ export type AdminUser = {
   role: "student" | "teacher" | "admin";
   status: "active" | "invited" | "suspended";
   created_at: string;
+  roll_number: string | null;
 };
 
 type ServiceResponse<T> = {
@@ -17,6 +18,7 @@ type ServiceResponse<T> = {
 
 /**
  * Gets the logged-in Institution Admin's active institution.
+ * Assumes one active institution per admin account.
  */
 export async function getAdminInstitutionId(): Promise<
   ServiceResponse<string>
@@ -61,7 +63,7 @@ export async function getAdminInstitutionId(): Promise<
 }
 
 /**
- * Fetches users belonging to the logged-in Institution Admin's institution.
+ * Fetches users belonging to the logged-in Admin's institution.
  */
 export async function getAdminUsers(): Promise<
   ServiceResponse<AdminUser[]>
@@ -77,7 +79,7 @@ export async function getAdminUsers(): Promise<
 
     const institutionId = institutionResult.data;
 
-    // Fetch memberships belonging to this institution.
+    // Fetch institution memberships.
     const { data: memberships, error: membershipError } = await supabase
       .from("institution_memberships")
       .select("id, user_id, role, status, created_at")
@@ -89,12 +91,17 @@ export async function getAdminUsers(): Promise<
     }
 
     if (!memberships || memberships.length === 0) {
-      return { data: [], error: null };
+      return {
+        data: [],
+        error: null,
+      };
     }
 
-    // Fetch profile names for the membership users.
-    const userIds = memberships.map((membership) => membership.user_id);
+    const userIds = memberships.map(
+      (membership) => membership.user_id
+    );
 
+    // Fetch profile names.
     const { data: profiles, error: profileError } = await supabase
       .from("profiles")
       .select("id, full_name")
@@ -104,13 +111,40 @@ export async function getAdminUsers(): Promise<
       throw profileError;
     }
 
-    const profileMap = new Map(
+    const profileMap = new Map<string, string | null>(
       (profiles || []).map((profile) => [
         profile.id,
         profile.full_name,
       ])
     );
 
+    // Fetch roll numbers for student memberships only.
+    const studentIds = memberships
+      .filter((membership) => membership.role === "student")
+      .map((membership) => membership.user_id);
+
+    let rollNumberMap = new Map<string, string | null>();
+
+    if (studentIds.length > 0) {
+      const { data: studentProfiles, error: studentProfileError } =
+        await supabase
+          .from("student_profiles")
+          .select("id, roll_number")
+          .in("id", studentIds);
+
+      if (studentProfileError) {
+        throw studentProfileError;
+      }
+
+      rollNumberMap = new Map<string, string | null>(
+        (studentProfiles || []).map((profile) => [
+          profile.id,
+          profile.roll_number,
+        ])
+      );
+    }
+
+    // Combine membership, profile and roll-number information.
     const users: AdminUser[] = memberships.map((membership) => ({
       id: membership.id,
       user_id: membership.user_id,
@@ -119,6 +153,10 @@ export async function getAdminUsers(): Promise<
       role: membership.role,
       status: membership.status,
       created_at: membership.created_at,
+      roll_number:
+        membership.role === "student"
+          ? rollNumberMap.get(membership.user_id) ?? null
+          : null,
     }));
 
     return {
@@ -134,6 +172,50 @@ export async function getAdminUsers(): Promise<
         error instanceof Error
           ? error.message
           : "Failed to fetch users.",
+    };
+  }
+}
+
+/**
+ * Manually assigns or updates a student's roll number.
+ * Authorization and duplicate validation are handled by Supabase RPC.
+ */
+export async function assignStudentRollNumber(
+  studentId: string,
+  rollNumber: string
+): Promise<ServiceResponse<string | null>> {
+  try {
+    const normalizedRollNumber = rollNumber.trim();
+
+    if (!normalizedRollNumber) {
+      throw new Error("Please enter a valid roll number.");
+    }
+
+    const { data, error } = await supabase.rpc(
+      "admin_assign_student_roll_number",
+      {
+        p_student_id: studentId,
+        p_roll_number: normalizedRollNumber,
+      }
+    );
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      data: data ?? null,
+      error: null,
+    };
+  } catch (error) {
+    console.error("assignStudentRollNumber:", error);
+
+    return {
+      data: null,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to update student roll number.",
     };
   }
 }

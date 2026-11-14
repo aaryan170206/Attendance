@@ -14,7 +14,11 @@ import {
 } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
-import { getAdminUsers, AdminUser } from "@/services/adminUsers";
+import {
+  getAdminUsers,
+  assignStudentRollNumber,
+  type AdminUser,
+} from "@/services/adminUsers";
 
 type RoleFilter = "all" | "student" | "teacher" | "admin";
 type StatusFilter = "all" | "active" | "invited" | "suspended";
@@ -35,6 +39,12 @@ export default function AdminUsers() {
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [detailsVisible, setDetailsVisible] = useState(false);
 
+  // Roll number assignment states
+  const [rollNumberInput, setRollNumberInput] = useState("");
+  const [savingRollNumber, setSavingRollNumber] = useState(false);
+  const [rollNumberError, setRollNumberError] = useState<string | null>(null);
+  const [rollNumberSuccess, setRollNumberSuccess] = useState(false);
+
   const borderColor = isDark ? "#383B40" : "#E0E1E6";
 
   // Load users from Supabase
@@ -45,17 +55,23 @@ export default function AdminUsers() {
       setLoading(true);
     }
 
-    const result = await getAdminUsers();
+    try {
+      const result = await getAdminUsers();
 
-    if (result.error) {
-      setError(result.error);
-    } else {
-      setUsers(result.data || []);
-      setError(null);
+      if (result.error) {
+        setError(result.error);
+      } else {
+        setUsers(result.data || []);
+        setError(null);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load users."
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-
-    setLoading(false);
-    setRefreshing(false);
   }, []);
 
   useEffect(() => {
@@ -75,9 +91,11 @@ export default function AdminUsers() {
   // Search and filters
   const filteredUsers = useMemo(() => {
     return users.filter((user) => {
-      const matchesSearch = user.full_name
-        .toLowerCase()
-        .includes(search.trim().toLowerCase());
+      const searchTerm = search.trim().toLowerCase();
+
+      const matchesSearch =
+        (user.full_name || "").toLowerCase().includes(searchTerm) ||
+        (user.roll_number || "").toLowerCase().includes(searchTerm);
 
       const matchesRole =
         roleFilter === "all" || user.role === roleFilter;
@@ -114,6 +132,71 @@ export default function AdminUsers() {
         return "#DC2626";
       default:
         return colors.textSecondary;
+    }
+  };
+
+  // Save or update a student's roll number
+  const handleSaveRollNumber = async () => {
+    if (!selectedUser || selectedUser.role !== "student") {
+      return;
+    }
+
+    const normalizedRollNumber = rollNumberInput.trim();
+
+    if (!normalizedRollNumber) {
+      setRollNumberError("Please enter a roll number.");
+      return;
+    }
+
+    setSavingRollNumber(true);
+    setRollNumberError(null);
+    setRollNumberSuccess(false);
+
+    try {
+      const result = await assignStudentRollNumber(
+        selectedUser.user_id,
+        normalizedRollNumber
+      );
+
+      if (result.error) {
+        setRollNumberError(result.error);
+        return;
+      }
+
+      const updatedRollNumber = result.data;
+
+      // Update the users list immediately
+      setUsers((previousUsers) =>
+        previousUsers.map((user) =>
+          user.user_id === selectedUser.user_id
+            ? {
+                ...user,
+                roll_number: updatedRollNumber,
+              }
+            : user
+        )
+      );
+
+      // Update the selected user in the modal
+      setSelectedUser((previousUser: AdminUser | null) =>
+        previousUser
+          ? {
+              ...previousUser,
+              roll_number: updatedRollNumber,
+            }
+          : null
+      );
+
+      setRollNumberInput(updatedRollNumber ?? "");
+      setRollNumberSuccess(true);
+    } catch (err) {
+      setRollNumberError(
+        err instanceof Error
+          ? err.message
+          : "Failed to update roll number."
+      );
+    } finally {
+      setSavingRollNumber(false);
     }
   };
 
@@ -159,6 +242,9 @@ export default function AdminUsers() {
     <Pressable
       onPress={() => {
         setSelectedUser(item);
+        setRollNumberInput(item.roll_number ?? "");
+        setRollNumberError(null);
+        setRollNumberSuccess(false);
         setDetailsVisible(true);
       }}
       style={{
@@ -197,6 +283,18 @@ export default function AdminUsers() {
           >
             Joined {new Date(item.created_at).toLocaleDateString()}
           </Text>
+
+          {item.role === "student" && (
+            <Text
+              style={{
+                color: colors.textSecondary,
+                fontSize: 12,
+                marginTop: 4,
+              }}
+            >
+              Roll Number: {item.roll_number || "Not assigned"}
+            </Text>
+          )}
         </View>
 
         <View
@@ -348,9 +446,7 @@ export default function AdminUsers() {
                   marginBottom: 18,
                 }}
               >
-                <Text style={{ color: "#DC2626" }}>
-                  {error}
-                </Text>
+                <Text style={{ color: "#DC2626" }}>{error}</Text>
 
                 <Pressable
                   onPress={() => loadUsers()}
@@ -419,7 +515,7 @@ export default function AdminUsers() {
             <TextInput
               value={search}
               onChangeText={setSearch}
-              placeholder="Search users by name..."
+              placeholder="Search by name or roll number..."
               placeholderTextColor={colors.textSecondary}
               style={{
                 backgroundColor: colors.backgroundElement,
@@ -537,7 +633,11 @@ export default function AdminUsers() {
         visible={detailsVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setDetailsVisible(false)}
+        onRequestClose={() => {
+          if (!savingRollNumber) {
+            setDetailsVisible(false);
+          }
+        }}
       >
         <View
           style={{
@@ -575,7 +675,10 @@ export default function AdminUsers() {
                 User Details
               </Text>
 
-              <Pressable onPress={() => setDetailsVisible(false)}>
+              <Pressable
+                disabled={savingRollNumber}
+                onPress={() => setDetailsVisible(false)}
+              >
                 <Text
                   style={{
                     color: colors.textSecondary,
@@ -656,6 +759,97 @@ export default function AdminUsers() {
                   {selectedUser.role}
                 </Text>
 
+                {/* Student roll number assignment */}
+                {selectedUser.role === "student" && (
+                  <>
+                    <Text
+                      style={{
+                        color: colors.textSecondary,
+                        fontSize: 12,
+                      }}
+                    >
+                      ROLL NUMBER
+                    </Text>
+
+                    <TextInput
+                      value={rollNumberInput}
+                      onChangeText={(value) => {
+                        setRollNumberInput(value);
+                        setRollNumberError(null);
+                        setRollNumberSuccess(false);
+                      }}
+                      placeholder="Enter college roll number"
+                      placeholderTextColor={colors.textSecondary}
+                      autoCapitalize="characters"
+                      autoCorrect={false}
+                      editable={!savingRollNumber}
+                      style={{
+                        backgroundColor: colors.backgroundElement,
+                        color: colors.text,
+                        borderWidth: 1,
+                        borderColor,
+                        borderRadius: 10,
+                        paddingHorizontal: 13,
+                        paddingVertical: 12,
+                        fontSize: 15,
+                        marginTop: 8,
+                        marginBottom: 10,
+                      }}
+                    />
+
+                    {rollNumberError && (
+                      <Text
+                        style={{
+                          color: "#DC2626",
+                          fontSize: 12,
+                          marginBottom: 10,
+                        }}
+                      >
+                        {rollNumberError}
+                      </Text>
+                    )}
+
+                    {rollNumberSuccess && (
+                      <Text
+                        style={{
+                          color: "#16A34A",
+                          fontSize: 12,
+                          marginBottom: 10,
+                        }}
+                      >
+                        Roll number saved successfully.
+                      </Text>
+                    )}
+
+                    <Pressable
+                      onPress={handleSaveRollNumber}
+                      disabled={savingRollNumber}
+                      style={{
+                        backgroundColor: colors.backgroundSelected,
+                        paddingVertical: 12,
+                        borderRadius: 10,
+                        alignItems: "center",
+                        marginBottom: 20,
+                        opacity: savingRollNumber ? 0.6 : 1,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: colors.text,
+                          fontWeight: "700",
+                          fontSize: 14,
+                        }}
+                      >
+                        {savingRollNumber
+                          ? "Saving..."
+                          : selectedUser.roll_number
+                            ? "Update Roll Number"
+                            : "Assign Roll Number"}
+                      </Text>
+                    </Pressable>
+                  </>
+                )}
+
                 {/* Membership status */}
                 <Text
                   style={{
@@ -696,15 +890,14 @@ export default function AdminUsers() {
                     marginTop: 5,
                   }}
                 >
-                  {new Date(
-                    selectedUser.created_at
-                  ).toLocaleDateString()}
+                  {new Date(selectedUser.created_at).toLocaleDateString()}
                 </Text>
               </>
             )}
 
             {/* Close button */}
             <Pressable
+              disabled={savingRollNumber}
               onPress={() => setDetailsVisible(false)}
               style={{
                 backgroundColor: colors.backgroundSelected,
@@ -712,6 +905,7 @@ export default function AdminUsers() {
                 borderRadius: 12,
                 alignItems: "center",
                 marginTop: 25,
+                opacity: savingRollNumber ? 0.6 : 1,
               }}
             >
               <Text
